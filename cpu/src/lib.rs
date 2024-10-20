@@ -1,19 +1,21 @@
+#![feature(coroutines, coroutine_trait, stmt_expr_attributes)]
+
 // BUGS not found by the harte tests:
 // - jmp abs
 // - branch with -128 relative offset
 // - php setting B flag (obelisk guide doesn't mention)
 
-#![feature(coroutines, coroutine_trait, stmt_expr_attributes)]
+// TODO: consider using threads and channels instead of coroutines? Or
+// async/await with channels?
 
 // use std::collections::HashMap;
+use std::ops::{Coroutine};
 use std::fmt;
-use std::ops::{Coroutine, CoroutineState};
-use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU16, Ordering};
 
 use bitflags::bitflags;
-	
+
 static PC_MONITOR: AtomicU16 = AtomicU16::new(0);
 static SP_MONITOR: AtomicU8 = AtomicU8::new(0);
 static A_MONITOR: AtomicU8 = AtomicU8::new(0);
@@ -36,17 +38,17 @@ bitflags! {
 }
 
 #[derive(Clone, Debug)]
-struct Cpu {
+pub struct Cpu {
     pc: u16,
     sp: u8,
     a: u8,
     x: u8,
     y: u8,
     status: Flags,
-    read_buf: Arc<AtomicU8>,
-    reset_signal: Arc<AtomicBool>,
-    irq_signal: Arc<AtomicBool>,
-    nmi_signal: Arc<AtomicBool>,
+    pub read_buf: Arc<AtomicU8>,
+    pub reset_signal: Arc<AtomicBool>,
+    pub irq_signal: Arc<AtomicBool>,
+    pub nmi_signal: Arc<AtomicBool>,
 }
 
 impl fmt::Display for Cpu {
@@ -61,24 +63,27 @@ impl fmt::Display for Cpu {
 }
 
 #[derive(Debug)]
-enum CpuEvent {
-    ReadByte(u16),
-    WriteByte(u16, u8),
+pub enum CpuEventType {
+    Read,
+    Write(u8),
 }
 
-impl fmt::Display for CpuEvent {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-	match self {
-	    CpuEvent::ReadByte(adr) => write!(f, "ReadByte({:04x})", adr),
-	    CpuEvent::WriteByte(adr, val) =>
-		write!(f, "WriteByte({:04x}, {:02x})", adr, val),
-	}
-    }
-}
+// Every CPU event contains an address and either reads from that
+// address or writes a byte to it.
+pub type CpuEvent = (u16, CpuEventType);
 
+// impl fmt::Display for CpuEvent {
+//     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+// 	match self {
+// 	    CpuEvent::Read(adr) => write!(f, "Read({:04x})", adr),
+// 	    CpuEvent::Write(adr, val) =>
+// 		write!(f, "Write({:04x}, {:02x})", adr, val),
+// 	}
+//     }
+// }
 
 impl Cpu {
-    fn new() -> Self {
+    pub fn new() -> Self {
 	Cpu {
 	    pc: 0,
 	    sp: 0xFF,
@@ -142,13 +147,13 @@ impl Cpu {
 	P_MONITOR.store(self.status.bits(), Ordering::Relaxed);
     }
 
-    fn run(&mut self)
-	   -> Box<dyn Coroutine<Yield = CpuEvent, Return = ()> + Unpin + '_> {
-
+    pub fn run(&mut self)
+	   -> Box<dyn Coroutine<Yield = CpuEvent, Return = String> + Unpin + '_> {
+	
 	macro_rules! fetch {
 	    ( $adr:expr ) => {
 		{
-		    yield CpuEvent::ReadByte($adr);
+		    yield ($adr, CpuEventType::Read);
 		    self.read_buf.load(Ordering::Relaxed)
 		}
 	    };
@@ -157,7 +162,7 @@ impl Cpu {
 	macro_rules! next_pc {
 	    ( ) => {
 		{
-		    yield CpuEvent::ReadByte(self.pc);
+		    yield (self.pc, CpuEventType::Read);
 		    self.pc = self.pc.wrapping_add(1);
 		    self.read_buf.load(Ordering::Relaxed)
 		}
@@ -166,7 +171,7 @@ impl Cpu {
 
 	macro_rules! write {
 	    ( $adr:expr, $val:expr ) => {
-		yield CpuEvent::WriteByte($adr, $val)
+		yield ($adr, CpuEventType::Write($val))
 	    };
 	}
 
@@ -228,7 +233,7 @@ impl Cpu {
 	    loop {
 		self.update_monitor();
 		// println!("\n{}", self);
-		
+
 		// Poll reset/interrupt signals
 		if self.reset_signal.load(Ordering::Relaxed) {
 		    // Wait for signal to be cleared to actually proceed?
@@ -756,7 +761,8 @@ impl Cpu {
 			self.pc = (hi << 8) | lo;
 		    }
 
-		    Xxx => panic!("Unsupported opcode {:02x}", instr_code)
+		    // Xxx => panic!("Unsupported opcode {:02x}", instr_code)
+		    Xxx => return format!("Unsupported opcode {:02x}", instr_code)
 		}
 	    }
 	};
@@ -786,63 +792,6 @@ struct Instr {
     mode: AddrMode,
 }
 
-#[derive(Clone, Copy, Debug)]
-enum Arg {
-    Rel(i8),
-    Abs(u16),
-    Imm(u8),
-}
-
-#[derive(Clone, Copy, Debug)]
-struct InstrWithArg {
-    instr: Instr,
-    arg: Option<Arg>
-}
-
-impl fmt::Display for Arg {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-	match self {
-	    Arg::Rel(x) => write!(f, "Rel({})", x),
-	    Arg::Abs(x) => write!(f, "Abs({})", x),
-	    Arg::Imm(x) => write!(f, "Imm({})", x),
-	}
-    }
-}
-
-impl fmt::Display for InstrWithArg {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-	match self.arg {
-	    None => write!(f, "{:?}", self.instr),
-	    Some(x) => write!(f, "{:?} {}", self.instr, x)
-	}
-    }
-}
-
-fn parse_instr_with_arg(mem: &[u8], pc: usize) -> (InstrWithArg, usize) {
-    let instr_code = mem[pc];
-    let instr = Cpu::decode(instr_code);
-    match instr.mode {
-	Imp => (InstrWithArg { instr: *instr,
-			       arg: None }, 1),
-	Rel => {
-	    let byte = mem[pc+1];
-	    (InstrWithArg { instr: *instr,
-			    arg: Some(Arg::Rel(byte as i8)) }, 1)
-	}
-	Imm => {
-	    let byte = mem[pc+1];
-	    (InstrWithArg { instr: *instr,
-			    arg: Some(Arg::Imm(byte)) }, 1)
-	}
-	_ => {
-	    let lo = mem[pc+1] as u16;
-	    let hi = mem[pc+2] as u16;
-	    (InstrWithArg { instr: *instr,
-			    arg: Some(Arg::Abs((hi << 8) | lo)) }, 2)
-	}
-    }
-}
-
 // fn show_prog(mem: &[u8],
 // 	     pc_instr_map: &HashMap<u16, InstrWithArg>,
 // 	     ctx_size: usize) {
@@ -859,7 +808,66 @@ fn parse_instr_with_arg(mem: &[u8], pc: usize) -> (InstrWithArg, usize) {
 mod tests {
     use super::*;
     use std::fs;
+    use std::ops::{CoroutineState};
+    use std::pin::Pin;
     use serde::{Deserialize, Serialize};
+
+    #[derive(Clone, Copy, Debug)]
+    enum Arg {
+	Rel(i8),
+	Abs(u16),
+	Imm(u8),
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    struct InstrWithArg {
+	instr: Instr,
+	arg: Option<Arg>
+    }
+
+    impl fmt::Display for Arg {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+	    match self {
+		Arg::Rel(x) => write!(f, "Rel({})", x),
+		Arg::Abs(x) => write!(f, "Abs({})", x),
+		Arg::Imm(x) => write!(f, "Imm({})", x),
+	    }
+	}
+    }
+
+    impl fmt::Display for InstrWithArg {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+	    match self.arg {
+		None => write!(f, "{:?}", self.instr),
+		Some(x) => write!(f, "{:?} {}", self.instr, x)
+	    }
+	}
+    }
+
+    fn parse_instr_with_arg(mem: &[u8], pc: usize) -> (InstrWithArg, usize) {
+	let instr_code = mem[pc];
+	let instr = Cpu::decode(instr_code);
+	match instr.mode {
+	    Imp => (InstrWithArg { instr: *instr,
+				   arg: None }, 1),
+	    Rel => {
+		let byte = mem[pc+1];
+		(InstrWithArg { instr: *instr,
+				arg: Some(Arg::Rel(byte as i8)) }, 1)
+	    }
+	    Imm => {
+		let byte = mem[pc+1];
+		(InstrWithArg { instr: *instr,
+				arg: Some(Arg::Imm(byte)) }, 1)
+	    }
+	    _ => {
+		let lo = mem[pc+1] as u16;
+		let hi = mem[pc+2] as u16;
+		(InstrWithArg { instr: *instr,
+				arg: Some(Arg::Abs((hi << 8) | lo)) }, 2)
+	    }
+	}
+    }
 
     #[derive(Debug, Serialize, Deserialize)]
     struct TestState {
@@ -900,32 +908,33 @@ mod tests {
 
 	for (test_addr, test_val, test_rw) in test.cycles {
 	    match Pin::new(&mut cpu_process).resume(()) {
-		CoroutineState::Yielded(event) => {
+		CoroutineState::Yielded((addr, event)) => {
 		    // println!("{}", event);
 		    match event {
-			CpuEvent::ReadByte(addr) => {
+			CpuEventType::Read => {
 			    if test_rw != "read" || addr != test_addr {
-				return Err(format!("expected '{} {:04x}', got {}",
-						   test_rw, test_addr, event))
+				return Err(format!("expected '{} {:04x}', got {:?} {}",
+						   test_rw, test_addr, event, addr))
 			    }
 			    if mem[addr as usize] != test_val {
 				return Err(format!(
-				    "{} wrong memory value. expected {:x}, got {:x}",
-				    event, test_val, mem[addr as usize]))
+				    "{:?} {} wrong memory value. \
+				     expected {:x}, got {:x}",
+				    event, addr, test_val, mem[addr as usize]))
 			    }
 			    buf.store(mem[addr as usize], Ordering::Relaxed)
 			}
-			CpuEvent::WriteByte(addr, byte) => {
+			CpuEventType::Write(byte) => {
 			    if test_rw != "write" || addr != test_addr {
-				return Err(format!("expected '{} {:04x}', got {}",
-						   test_rw, test_addr, event))
+				return Err(format!("expected '{} {:04x}', got {:?} {}",
+						   test_rw, test_addr, event, addr))
 			    }
 			    mem[addr as usize] = byte
 			}
 		    }
 		}
-		CoroutineState::Complete(()) => {
-		    return Err(format!("unexpected return from resume"))
+		CoroutineState::Complete(msg) => {
+		    return Err(msg)
 		}
 	    }
 	}
@@ -949,11 +958,12 @@ mod tests {
 	Ok(())
     }
 
-    fn load_mem(path: &str, start_addr: u16) -> Vec<u8> {
-	let bin = std::fs::read(path).expect("failed to read test binary");
+    fn load_mem(path: &str, start_addr: u16)
+		-> Result<Vec<u8>, Box<dyn std::error::Error>> {
+	let bin = std::fs::read(path)?;
 	let mut mem = [0; 65536];
 	mem[start_addr as usize..start_addr as usize + bin.len()].copy_from_slice(&bin);
-	mem.into()
+	Ok(mem.into())
     }
 
     #[test]
@@ -961,7 +971,7 @@ mod tests {
 	const PROGRAM_START: u16 = 0x400;
 	const SUCCESS_ADDR: u16 = 0x336d;
 	let path = "/home/alex/Dropbox/6502_65C02_functional_tests/6502_functional_test.bin";
-	let mut mem: Vec<u8> = load_mem(path, 0x000A);
+	let mut mem: Vec<u8> = load_mem(path, 0x000A)?;
 
 	let mut cpu = Cpu::new();
 	cpu.pc = PROGRAM_START;
@@ -1003,18 +1013,18 @@ mod tests {
 	    // }
 
 	    match Pin::new(&mut cpu_process).resume(()) {
-		CoroutineState::Yielded(event) => {
+		CoroutineState::Yielded((addr, event)) => {
 		    match event {
-			CpuEvent::ReadByte(addr) => {
+			CpuEventType::Read => {
 			    buf.store(mem[addr as usize], Ordering::Relaxed)
 			}
-			CpuEvent::WriteByte(addr, byte) => {
+			CpuEventType::Write(byte) => {
 			    mem[addr as usize] = byte
 			}
 		    }
 		}
-		CoroutineState::Complete(()) => {
-		    panic!("unexpected return from resume")
+		CoroutineState::Complete(msg) => {
+		    panic!("{}", msg)
 		}
 	    }
 	}
@@ -1039,7 +1049,7 @@ mod tests {
 	const IRQ_BIT: u8 = 1 << 0;
 	const NMI_BIT: u8 = 1 << 1;
 	let path = "/home/alex/Dropbox/6502_65C02_functional_tests/6502_interrupt_test.bin";
-	let mut mem: Vec<u8> = load_mem(path, 0x000A);
+	let mut mem: Vec<u8> = load_mem(path, 0x000A)?;
 
 	let mut cpu = Cpu::new();
 	cpu.pc = PROGRAM_START;
@@ -1086,18 +1096,18 @@ mod tests {
 	    // println!("{:04x}: {}", pc, cur_instr);
 
 	    match Pin::new(&mut cpu_process).resume(()) {
-		CoroutineState::Yielded(event) => {
+		CoroutineState::Yielded((addr, event)) => {
 		    match event {
-			CpuEvent::ReadByte(addr) => {
+			CpuEventType::Read => {
 			    buf.store(mem[addr as usize], Ordering::Relaxed)
 			}
-			CpuEvent::WriteByte(addr, byte) => {
+			CpuEventType::Write(byte) => {
 			    mem[addr as usize] = byte
 			}
 		    }
 		}
-		CoroutineState::Complete(()) => {
-		    panic!("unexpected return from resume")
+		CoroutineState::Complete(msg) => {
+		    panic!("{}", msg)
 		}
 	    }
 	}

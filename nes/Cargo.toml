@@ -5,3 +5,5 @@ edition = "2021"
 
 [dependencies]
 cpu = { path = "../cpu" }
+ppu = { path = "../ppu" }
+raylib = "5.0.2"
