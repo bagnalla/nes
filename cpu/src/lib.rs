@@ -16,12 +16,12 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU16, Ordering};
 
 use bitflags::bitflags;
 
-static PC_MONITOR: AtomicU16 = AtomicU16::new(0);
-static SP_MONITOR: AtomicU8 = AtomicU8::new(0);
-static A_MONITOR: AtomicU8 = AtomicU8::new(0);
-static X_MONITOR: AtomicU8 = AtomicU8::new(0);
-static Y_MONITOR: AtomicU8 = AtomicU8::new(0);
-static P_MONITOR: AtomicU8 = AtomicU8::new(0);
+// static PC_MONITOR: AtomicU16 = AtomicU16::new(0);
+// static SP_MONITOR: AtomicU8 = AtomicU8::new(0);
+// static A_MONITOR: AtomicU8 = AtomicU8::new(0);
+// static X_MONITOR: AtomicU8 = AtomicU8::new(0);
+// static Y_MONITOR: AtomicU8 = AtomicU8::new(0);
+// static P_MONITOR: AtomicU8 = AtomicU8::new(0);
 
 bitflags! {
     #[derive(Clone, Copy, Debug)]
@@ -138,14 +138,14 @@ impl Cpu {
 	&INSTR_TABLE[op as usize]
     }
 
-    fn update_monitor(&self) {
-	PC_MONITOR.store(self.pc, Ordering::Relaxed);
-	SP_MONITOR.store(self.sp, Ordering::Relaxed);
-	A_MONITOR.store(self.a, Ordering::Relaxed);
-	X_MONITOR.store(self.x, Ordering::Relaxed);
-	Y_MONITOR.store(self.y, Ordering::Relaxed);
-	P_MONITOR.store(self.status.bits(), Ordering::Relaxed);
-    }
+    // fn update_monitor(&self) {
+    // 	PC_MONITOR.store(self.pc, Ordering::Relaxed);
+    // 	SP_MONITOR.store(self.sp, Ordering::Relaxed);
+    // 	A_MONITOR.store(self.a, Ordering::Relaxed);
+    // 	X_MONITOR.store(self.x, Ordering::Relaxed);
+    // 	Y_MONITOR.store(self.y, Ordering::Relaxed);
+    // 	P_MONITOR.store(self.status.bits(), Ordering::Relaxed);
+    // }
 
     pub fn run(&mut self)
 	   -> Box<dyn Coroutine<Yield = CpuEvent, Return = String> + Unpin + '_> {
@@ -231,8 +231,7 @@ impl Cpu {
 
 	let go = #[coroutine] move || {
 	    loop {
-		self.update_monitor();
-		// println!("\n{}", self);
+		// self.update_monitor();
 
 		// Poll reset/interrupt signals
 		if self.reset_signal.load(Ordering::Relaxed) {

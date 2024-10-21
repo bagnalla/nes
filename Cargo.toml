@@ -1,3 +1,3 @@
 [workspace]
 resolver = "1"
-members = [ "cpu", "ppu", "nes" ]
+members = [ "cpu", "nes" , "emu"]

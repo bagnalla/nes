@@ -3,13 +3,7 @@
 use std::ops::{Coroutine};
 use std::fmt;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, AtomicU16, Ordering};
-
-impl fmt::Display for Ppu {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-	writeln!(f, "")
-    }
-}
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU16, Ordering};
 
 #[derive(Debug)]
 pub enum Bus {
@@ -48,6 +42,14 @@ pub struct Ppu {
 
     nameTbl: [[u8; 1024]; 2],
     paletteTbl: [u8; 32],
+
+    pub frame_complete: Arc<AtomicBool>,
+}
+
+impl fmt::Display for Ppu {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+	writeln!(f, "")
+    }
 }
 
 impl Ppu {
@@ -65,13 +67,28 @@ impl Ppu {
 	    
 	    nameTbl: [[0; 1024]; 2],
 	    paletteTbl: [0; 32],
+
+	    frame_complete: Arc::new(AtomicBool::new(false)),
 	}
     }
 
     pub fn run(&mut self)
 	       -> Box<dyn Coroutine<Yield = PpuEvent, Return = String> + Unpin + '_> {
 	let go = #[coroutine] move || {
-	    "".into()
+	    let mut cycle: usize = 0;
+	    let mut scanline: i64 = 0;
+	    loop {
+		cycle += 1;
+		if cycle >= 341 {
+		    cycle = 0;
+		    scanline += 1;
+		    if scanline >= 261 {
+			scanline = -1;
+			self.frame_complete.store(true, Ordering::Relaxed)
+		    }
+		}
+		yield (PpuEventTarget::Cpu, 0, PpuEventType::Read)
+	    }
 	};
 	Box::new(go)
     }
