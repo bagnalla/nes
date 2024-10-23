@@ -1,5 +1,6 @@
 #![feature(coroutines, coroutine_trait, stmt_expr_attributes)]
 
+use std::fs;
 use std::ops::{Coroutine, CoroutineState};
 use std::pin::Pin;
 use std::sync::atomic::{Ordering};
@@ -7,14 +8,81 @@ use std::time::{Duration, Instant};
 use std::thread::sleep;
 // use std::time::{Instant};
 
-use cpu::{Cpu, CpuEventType};
+use cpu::{Cpu, CpuEventType, PC_MONITOR};
 use nes::cart::{Cart, INES};
 use nes::{Nes, yielded};
 use nes::ppu::{Ppu, PpuEventTarget, PpuEventType};
 
 use raylib::prelude::*;
 
-fn main() {
+fn chrROMTexture(rl: &mut RaylibHandle,
+		 thread: &RaylibThread,
+		 ines: &INES,
+		 palette: &[Color; 64],
+		 i: usize) -> Result<Texture2D, String> {
+    let mut image = Image::gen_image_color(128, 128, Color::BLACK);
+    // for i in 0 .. ines.chrROM.len() / 2 {
+    // 	let lo = ines.chrROM[2*i];
+    // 	let hi = ines.chrROM[2*i+1];
+    // 	for j in 0..8 {
+    // 	    // (hi[j] << 1) | lo[j]
+    // 	}
+    // }
+
+    for tileY in 0..16 {
+	for tileX in 0..16 {
+	    let tileOffset = tileY * 256 + tileX * 16;
+	    
+	    for row in 0..8 {
+		let mut lsb = ines.chrROM[i * 0x1000 + tileOffset + row];
+		let mut msb = ines.chrROM[i * 0x1000 + tileOffset + row + 8];
+		for col in 0..8 {
+		    let pixel = ((msb & 1) << 1) | (lsb & 1);
+		    // let pixel = (msb & 1) + (lsb & 1);
+		    lsb >>= 1;
+		    msb >>= 1;
+		    image.draw_pixel((tileX * 8 + (7 - col)) as i32,
+				     (tileY * 8 + row) as i32,
+				     // if tileX % 2 == 0 { Color::WHITE } else { Color::BLACK });
+				     palette[pixel as usize]);
+		}
+
+	    // for col in 0..8 {
+	    // 	let mut lsb = ines.chrROM[i * 0x1000 + tileOffset + col];
+	    // 	let mut msb = ines.chrROM[i * 0x1000 + tileOffset + col + 8];
+	    // 	for row in 0..8 {
+	    // 	    let pixel = ((msb & 1) << 1) | (lsb & 1);
+	    // 	    lsb >>= 1;
+	    // 	    msb >>= 1;
+	    // 	    image.draw_pixel((tileX * 8 + (7 - col)) as i32,
+	    // 			     (tileY * 8 + row) as i32,
+	    // 			     palette[pixel as usize]);
+	    // 	}
+
+			
+	    }
+	}
+    }
+    
+    let chrROM_texture = rl.load_texture_from_image(&thread, &image)?;
+    Ok(chrROM_texture)
+}
+
+fn loadPalette(path: &str) -> Result<[Color; 64], std::io::Error> {
+    let bytes = fs::read(path)?;
+    let mut colors = [Color::BLACK; 64];
+    for i in 0..64 {
+	colors[i] = Color {
+	    r: bytes[3*i],
+	    g: bytes[3*i+1],
+	    b: bytes[3*i+2],
+	    a: 255,
+	}
+    }
+    Ok(colors)
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     const CYCLES_PER_SECOND: f64 = 1790000.0 * 3.0;
     const SECONDS_PER_FRAME: f64 = 1.0 / 60.0;
     // const CYCLES_PER_FRAME: usize = 29833 * 3;
@@ -22,10 +90,21 @@ fn main() {
     assert_eq!((CYCLES_PER_SECOND * SECONDS_PER_FRAME).floor() as usize,
 	       CYCLES_PER_FRAME);
 
-    let cart = Cart::new(INES::new()).expect("couldn't load ROM");
+    let palette = loadPalette("2C02G_wiki.pal")?;
+    // println!("{:?}", palette);
+
+    // let rom_data = fs::read("/home/alex/Dropbox/nes/roms/Super_mario_brothers.nes")?;
+    let rom_data = fs::read(
+	"/home/alex/Dropbox/nes/roms/Super Mario Bros. (Japan, USA).nes")?;
+    let ines: INES = rom_data.into();
+    // println!("{:?}", ines);
+    // std::process::exit(0);
+    let cart = Cart::new(ines.clone()).expect("couldn't load ROM");
+    let cart_ptr = &cart as *const Cart;
 
     // Set up NES
     let mut nes = Nes::new();
+    let nes_ptr = &nes as *const Nes;
     let mut nes_process = nes.run(cart);
 
     // Set up raylib
@@ -33,128 +112,37 @@ fn main() {
         .size(640, 480)
         .title("NES")
         .build();
+
     rl.set_target_fps(60);
+
+    let chrROM_left = chrROMTexture(&mut rl, &thread, &ines, &palette, 0)?;
+    let chrROM_right = chrROMTexture(&mut rl, &thread, &ines, &palette, 1)?;
 
     while !rl.window_should_close() {
 	let mut cycles = 0;
 	// Run NES cycles for the frame
 	for _ in 0 .. CYCLES_PER_FRAME {
-	    cycles = yielded(Pin::new(&mut nes_process).resume(()));
+	    cycles = yielded(Pin::new(&mut nes_process).resume(()))?;
 	}
-	println!("{}", cycles);
 	
-        let mut d = rl.begin_drawing(&thread);
-         
+	// println!("{}", cycles);
+
+	println!("{}", PC_MONITOR.load(Ordering::Relaxed));
+	unsafe {
+	    println!("{}", (*(*nes_ptr).cpu).pc);
+	}
+	
+        let mut d = rl.begin_drawing(&thread);         
         d.clear_background(Color::WHITE);
+	// d.draw_texture(&chrROM_texture, 0, 0, Color::WHITE);
+	d.draw_texture_ex(&chrROM_left,
+			  Vector2 { x: 0.0, y: 0.0 },
+			  0.0, 2.0, Color::WHITE);
+	d.draw_texture_ex(&chrROM_right,
+			  Vector2 { x: 256.0, y: 0.0 },
+			  0.0, 2.0, Color::WHITE);
         // d.draw_text("Hello, world!", 12, 12, 20, Color::BLACK);
     }
+
+    Ok(())
 }
-
-    // // Set up CPU
-    // let mut cpu = Cpu::new();
-    // let buf = cpu.read_buf.clone();
-    // let _reset_signal = cpu.reset_signal.clone();
-    // let _irq_signal = cpu.irq_signal.clone();
-    // let _nmi_signal = cpu.nmi_signal.clone();
-    // let mut cpu_process = cpu.run();
-
-    // // Set up PPU
-    // let mut ppu = Ppu::new();
-    // let mut ppu_process = ppu.run();
-
-    // // Set up memories
-    // let mut main_memory: [u8; 2048] = [0; 2048];
-    // let mut _ppu_memory: [u8; 2_usize.pow(11)] = [0; 2_usize.pow(11)];
-
-    // // Set up window / graphics renderer
-    // // todo!(); (probably raylib)
-
-    // let mut cycle_count: usize = 0;
-    // let mut frame_count: usize = 0;
-    // // let start_time = Instant::now();
-
-//     // TODO: replace with raylib game loop
-//     loop {
-// 	let frame_start = Instant::now();
-
-// 	// Run all the cycles for the frame
-// 	for _ in 0..CYCLES_PER_FRAME {
-	    
-// 	    // Run CPU for one cycle
-// 	    let (addr, event_type) = yielded(Pin::new(&mut cpu_process).resume(()));
-
-// 	    // Main memory access
-// 	    if addr <= 0x1FFF {
-// 		let wrapped_addr = addr % 2048;
-// 		match event_type {
-// 		    CpuEventType::Read => {
-// 			// println!("{:04x}", fixed_addr);
-// 			buf.store(main_memory[wrapped_addr as usize], Ordering::Relaxed)
-// 		    }
-// 		    CpuEventType::Write(byte) => {
-// 			main_memory[wrapped_addr as usize] = byte
-// 		    }
-// 		}
-// 	    }
-
-// 	    // PPU access
-// 	    else if addr <= 0x3FFF {
-// 		let wrapped_addr = (addr % 8) as u8;
-// 		match event_type {
-// 		    CpuEventType::Read => {
-// 			todo!()
-// 		    }
-// 		    CpuEventType::Write(byte) => {
-// 			todo!()
-// 		    }
-// 		}
-// 	    }
-
-// 	    // Something else
-// 	    else {
-// 		todo!()
-// 	    };
-
-// 	    // Run PPU for three cycles
-// 	    for _ in 0..3 {
-// 		let (bus, _addr, event) = yielded(Pin::new(&mut ppu_process).resume(()));
-// 		match bus {
-// 		    PpuEventTarget::Cpu => {
-// 			match event {
-// 			    PpuEventType::Read => {
-// 				todo!()
-// 			    }
-// 			    PpuEventType::Write(_byte) => {
-// 				todo!()
-// 			    }
-// 			}
-// 		    }
-// 		    PpuEventTarget::Ppu => {
-// 			match event {
-// 			    PpuEventType::Read => {
-// 				todo!()
-// 			    }
-// 			    PpuEventType::Write(_byte) => {
-// 				todo!()
-// 			    }
-// 			}
-// 		    }
-// 		}
-// 	    }
-// 	}
-
-// 	// Render frame
-// 	// todo!();
-
-// 	cycle_count += CYCLES_PER_FRAME;
-// 	// println!("{}", cycle_count);
-	
-// 	// Sleep for remaining time
-// 	let elapsed = Instant::now().duration_since(frame_start);
-// 	sleep(Duration::from_secs_f64(SECONDS_PER_FRAME) - elapsed);
-
-// 	frame_count += 1;
-// 	// println!("{}", frame_count as f64 /
-// 	// 	 Instant::now().duration_since(start_time).as_secs_f64());
-//     }
-// }

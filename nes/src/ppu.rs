@@ -40,9 +40,6 @@ pub struct Ppu {
     pub ppudata:   Arc<AtomicU8>,
     pub oamdma:    Arc<AtomicU8>,
 
-    nameTbl: [[u8; 1024]; 2],
-    paletteTbl: [u8; 32],
-
     pub frame_complete: Arc<AtomicBool>,
 }
 
@@ -64,9 +61,6 @@ impl Ppu {
 	    ppuaddr:   Arc::new(AtomicU16::new(0)),
 	    ppudata:   Arc::new(AtomicU8::new(0)),
 	    oamdma:    Arc::new(AtomicU8::new(0)),
-	    
-	    nameTbl: [[0; 1024]; 2],
-	    paletteTbl: [0; 32],
 
 	    frame_complete: Arc::new(AtomicBool::new(false)),
 	}
