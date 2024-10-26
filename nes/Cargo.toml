@@ -4,4 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+atomic_bitfield = "0.1.0"
+bitflags = "2.6.0"
 cpu = { path = "../cpu" }

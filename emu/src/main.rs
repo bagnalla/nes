@@ -8,10 +8,10 @@ use std::time::{Duration, Instant};
 use std::thread::sleep;
 // use std::time::{Instant};
 
-use cpu::{Cpu, CpuEventType, PC_MONITOR};
+use cpu::{Cpu, IO, PC_MONITOR};
 use nes::cart::{Cart, INES};
 use nes::{Nes, yielded};
-use nes::ppu::{Ppu, PpuEventTarget, PpuEventType};
+use nes::ppu::{Ppu};
 
 use raylib::prelude::*;
 
@@ -38,28 +38,12 @@ fn chrROMTexture(rl: &mut RaylibHandle,
 		let mut msb = ines.chrROM[i * 0x1000 + tileOffset + row + 8];
 		for col in 0..8 {
 		    let pixel = ((msb & 1) << 1) | (lsb & 1);
-		    // let pixel = (msb & 1) + (lsb & 1);
 		    lsb >>= 1;
 		    msb >>= 1;
 		    image.draw_pixel((tileX * 8 + (7 - col)) as i32,
 				     (tileY * 8 + row) as i32,
-				     // if tileX % 2 == 0 { Color::WHITE } else { Color::BLACK });
 				     palette[pixel as usize]);
-		}
-
-	    // for col in 0..8 {
-	    // 	let mut lsb = ines.chrROM[i * 0x1000 + tileOffset + col];
-	    // 	let mut msb = ines.chrROM[i * 0x1000 + tileOffset + col + 8];
-	    // 	for row in 0..8 {
-	    // 	    let pixel = ((msb & 1) << 1) | (lsb & 1);
-	    // 	    lsb >>= 1;
-	    // 	    msb >>= 1;
-	    // 	    image.draw_pixel((tileX * 8 + (7 - col)) as i32,
-	    // 			     (tileY * 8 + row) as i32,
-	    // 			     palette[pixel as usize]);
-	    // 	}
-
-			
+		}	
 	    }
 	}
     }

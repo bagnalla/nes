@@ -62,15 +62,15 @@ impl fmt::Display for Cpu {
     }
 }
 
-#[derive(Debug)]
-pub enum CpuEventType {
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum IO {
     Read,
     Write(u8),
 }
 
 // Every CPU event contains an address and either reads from that
 // address or writes a byte to it.
-pub type CpuEvent = (u16, CpuEventType);
+pub type CpuEvent = (u16, IO);
 
 // impl fmt::Display for CpuEvent {
 //     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -153,7 +153,7 @@ impl Cpu {
 	macro_rules! fetch {
 	    ( $adr:expr ) => {
 		{
-		    yield ($adr, CpuEventType::Read);
+		    yield ($adr, IO::Read);
 		    self.read_buf.load(Ordering::Relaxed)
 		}
 	    };
@@ -162,7 +162,7 @@ impl Cpu {
 	macro_rules! write {
 	    ( $adr:expr, $val:expr ) => {
 		{
-		    yield ($adr, CpuEventType::Write($val))
+		    yield ($adr, IO::Write($val))
 		}
 	    };
 	}
@@ -175,7 +175,7 @@ impl Cpu {
 		//     val
 		// }
 		{
-		    yield (self.pc, CpuEventType::Read);
+		    yield (self.pc, IO::Read);
 		    self.pc = self.pc.wrapping_add(1);
 		    self.read_buf.load(Ordering::Relaxed)
 		}
@@ -731,6 +731,7 @@ impl Cpu {
 			push!((self.pc & 0x00FF) as u8); // Push PCL
 			self.set_flag(Flags::U, true);
 			push!(self.status.bits());
+			// self.set_flag(Flags::I, true); // ???
 			// Check for NMI hijack
 			if self.nmi_signal.load(Ordering::Relaxed) {
 			    let pcl = fetch!(0xFFFA) as u16;
@@ -918,7 +919,7 @@ mod tests {
 		CoroutineState::Yielded((addr, event)) => {
 		    // println!("{}", event);
 		    match event {
-			CpuEventType::Read => {
+			IO::Read => {
 			    if test_rw != "read" || addr != test_addr {
 				return Err(format!("expected '{} {:04x}', got {:?} {}",
 						   test_rw, test_addr, event, addr))
@@ -931,7 +932,7 @@ mod tests {
 			    }
 			    buf.store(mem[addr as usize], Ordering::Relaxed)
 			}
-			CpuEventType::Write(byte) => {
+			IO::Write(byte) => {
 			    if test_rw != "write" || addr != test_addr {
 				return Err(format!("expected '{} {:04x}', got {:?} {}",
 						   test_rw, test_addr, event, addr))
@@ -1022,10 +1023,10 @@ mod tests {
 	    match Pin::new(&mut cpu_process).resume(()) {
 		CoroutineState::Yielded((addr, event)) => {
 		    match event {
-			CpuEventType::Read => {
+			IO::Read => {
 			    buf.store(mem[addr as usize], Ordering::Relaxed)
 			}
-			CpuEventType::Write(byte) => {
+			IO::Write(byte) => {
 			    mem[addr as usize] = byte
 			}
 		    }
@@ -1105,10 +1106,10 @@ mod tests {
 	    match Pin::new(&mut cpu_process).resume(()) {
 		CoroutineState::Yielded((addr, event)) => {
 		    match event {
-			CpuEventType::Read => {
+			IO::Read => {
 			    buf.store(mem[addr as usize], Ordering::Relaxed)
 			}
-			CpuEventType::Write(byte) => {
+			IO::Write(byte) => {
 			    mem[addr as usize] = byte
 			}
 		    }

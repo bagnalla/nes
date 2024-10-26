@@ -1,3 +1,4 @@
+use cpu::IO;
 
 // struct INESHeader {
 //     szPRGROM: usize,
@@ -22,7 +23,6 @@ pub struct INES {
     vsUnisystem: bool,
     playChoice: bool,
     nes2: bool,
-
     trainer: Option<Box<[u8; 512]>>,
     pub prgROM: Vec<u8>,
     pub chrROM: Vec<u8>,
@@ -101,7 +101,7 @@ impl From<Vec<u8>> for INES {
 }
 
 #[derive(Clone, Copy, Debug)]
-enum ReadOrWrite { Read, Write }
+pub enum ReadOrWrite { Read, Write }
 
 impl ReadOrWrite {
     fn is_read(&self) -> bool {
@@ -112,11 +112,56 @@ impl ReadOrWrite {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+impl From<IO> for ReadOrWrite {
+    fn from(event_type: IO) -> ReadOrWrite {
+	match event_type {
+	    IO::Read => ReadOrWrite::Read,
+	    IO::Write(_) => ReadOrWrite::Write,
+	}
+    }
+}
+
+// impl From<PpuEventType> for ReadOrWrite {
+//     fn from(event_type: PpuEventType) -> ReadOrWrite {
+// 	match event_type {
+// 	    PpuEventType::Read => ReadOrWrite::Read,
+// 	    PpuEventType::Write(_) => ReadOrWrite::Write,
+// 	}
+//     }
+// }
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CpuOrPpu { Cpu, Ppu }
 
-trait Mapper where {
-    fn map(&self, cp: CpuOrPpu, rw: ReadOrWrite, addr: u16) -> Option<u16>;
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PrgOrChr { Prg, Chr }
+
+#[derive(Clone, Copy, Debug)]
+pub enum MapTarget { Default, Cartridge(PrgOrChr) }
+
+pub trait Mapper where {
+    fn try_map(&self, cp: CpuOrPpu, rw: ReadOrWrite, addr: u16)
+	       -> Option<(MapTarget, u16)>;
+    fn map(&self, cp: CpuOrPpu, rw: ReadOrWrite, addr: u16)
+	   -> Option<(MapTarget, u16)> {
+	if cp == CpuOrPpu::Cpu && addr == 0x4015 {
+	    return Some((MapTarget::Default, addr))
+	}
+	let mapped = self.try_map(cp, rw, addr);
+	match cp {
+	    CpuOrPpu::Cpu => {
+		if addr < 0x4000 {
+		    return Some((MapTarget::Default, addr))
+		}
+	    }
+	    CpuOrPpu::Ppu => {
+		if addr >= 0x3F00 {
+		    return Some((MapTarget::Default, addr))
+		}
+	    }
+	}
+	mapped
+    }
 }
 
 struct Mapper000 {
@@ -136,24 +181,30 @@ fn assert(b : bool) -> Option<()> {
 }
 
 impl Mapper for Mapper000 {
-    fn map(&self, cp: CpuOrPpu, rw: ReadOrWrite, addr: u16) -> Option<u16> {
+    fn try_map(&self, cp: CpuOrPpu, rw: ReadOrWrite, addr: u16)
+	       -> Option<(MapTarget, u16)> {
 	match cp {
 	    CpuOrPpu::Cpu => {
-		assert(addr >= 0x8000)?;
-		Some(addr & (if self.twoPRGBanks {0x7FFF} else {0x3FFF}))
+		// assert(addr >= 0x8000)?;
+		if addr < 0x8000 {
+		    Some((MapTarget::Default, addr))
+		} else {
+		Some((MapTarget::Cartridge(PrgOrChr::Prg),
+		    addr & (if self.twoPRGBanks { 0x7FFF } else { 0x3FFF })))
+		}
 	    }
 	    CpuOrPpu::Ppu => {
 		assert(rw.is_read())?;
-		assert(addr >= 0x8000)?;
-		Some(addr)
+		// assert(addr >= 0x8000)?;
+		Some((MapTarget::Default, addr))
 	    }
 	}
     }
 }
 
 pub struct Cart {
-    rom: INES,
-    mapper: Box<dyn Mapper>,
+    pub rom: INES,
+    pub mapper: Box<dyn Mapper>,
 }
 
 impl Cart {
@@ -170,19 +221,31 @@ impl Cart {
 	    mapper: mapper,
 	})
     }
-    pub fn read(&self, cp: CpuOrPpu, addr: u16) -> Option<u8> {
-	let mapped_addr = self.mapper.map(cp, ReadOrWrite::Read, addr)? as usize;
+    pub fn read(&self, cp: PrgOrChr, addr: u16) -> Result<u8, String> {
 	match cp {
-	    CpuOrPpu::Cpu => Some(self.rom.prgROM[mapped_addr]),
-	    CpuOrPpu::Ppu => Some(self.rom.chrROM[mapped_addr]),
+	    PrgOrChr::Prg => self.rom.prgROM.get(addr as usize)
+		.ok_or("PRGROM read out of bounds".into()).copied(),
+	    PrgOrChr::Chr => self.rom.chrROM.get(addr as usize)
+		.ok_or("CHRROM read out of bounds".into()).copied(),
 	}
     }
-    pub fn write(&mut self, cp: CpuOrPpu, addr: u16, byte: u8) -> Option<()> {
-	let mapped_addr = self.mapper.map(cp, ReadOrWrite::Write, addr)? as usize;
+    pub fn write(&mut self, cp: PrgOrChr, addr: u16, byte: u8) -> Result<(), String> {
 	match cp {
-	    CpuOrPpu::Cpu => self.rom.prgROM[mapped_addr] = byte,
-	    CpuOrPpu::Ppu => self.rom.chrROM[mapped_addr] = byte,
+	    PrgOrChr::Prg => {
+		if (addr as usize) < self.rom.prgROM.len() {
+		    self.rom.prgROM[addr as usize] = byte
+		} else {
+		    return Err("PRGROM write out of bounds".into())
+		}
+	    }
+	    PrgOrChr::Chr => {
+		if (addr as usize) < self.rom.chrROM.len() {
+		    self.rom.chrROM[addr as usize] = byte
+		} else {
+		    return Err("CHRROM write out of bounds".into())
+		}
+	    }
 	}
-	Some(())
+	Ok(())
     }
 }
