@@ -1,25 +1,25 @@
 #![feature(coroutines, coroutine_trait, stmt_expr_attributes)]
 
 use std::fs;
-use std::ops::{Coroutine, CoroutineState};
+use std::ops::{Coroutine};
 use std::pin::Pin;
 use std::sync::atomic::{Ordering};
-use std::time::{Duration, Instant};
-use std::thread::sleep;
+// use std::time::{Duration, Instant};
+// use std::thread::sleep;
 // use std::time::{Instant};
 
-use cpu::{Cpu, IO, PC_MONITOR};
-use nes::cart::{Cart, INES};
+use cpu::{Cpu, IO, parse_instr_with_arg, PC_MONITOR};
+use nes::cart::{Cart, CpuOrPpu, INES};
 use nes::{Nes, yielded};
-use nes::ppu::{Ppu};
+// use nes::ppu::{Ppu};
 
 use raylib::prelude::*;
 
-fn chrROMTexture(rl: &mut RaylibHandle,
-		 thread: &RaylibThread,
-		 ines: &INES,
-		 palette: &[Color; 64],
-		 i: usize) -> Result<Texture2D, String> {
+fn chrrom_texture(rl: &mut RaylibHandle,
+		  thread: &RaylibThread,
+		  ines: &INES,
+		  palette: &[Color; 64],
+		  i: usize) -> Result<Texture2D, String> {
     let mut image = Image::gen_image_color(128, 128, Color::BLACK);
     // for i in 0 .. ines.chrROM.len() / 2 {
     // 	let lo = ines.chrROM[2*i];
@@ -29,30 +29,30 @@ fn chrROMTexture(rl: &mut RaylibHandle,
     // 	}
     // }
 
-    for tileY in 0..16 {
-	for tileX in 0..16 {
-	    let tileOffset = tileY * 256 + tileX * 16;
+    for tile_y in 0..16 {
+	for tile_x in 0..16 {
+	    let tile_offset = tile_y * 256 + tile_x * 16;
 	    
 	    for row in 0..8 {
-		let mut lsb = ines.chrROM[i * 0x1000 + tileOffset + row];
-		let mut msb = ines.chrROM[i * 0x1000 + tileOffset + row + 8];
+		let mut lsb = ines.chrrom[i * 0x1000 + tile_offset + row];
+		let mut msb = ines.chrrom[i * 0x1000 + tile_offset + row + 8];
 		for col in 0..8 {
 		    let pixel = ((msb & 1) << 1) | (lsb & 1);
 		    lsb >>= 1;
 		    msb >>= 1;
-		    image.draw_pixel((tileX * 8 + (7 - col)) as i32,
-				     (tileY * 8 + row) as i32,
+		    image.draw_pixel((tile_x * 8 + (7 - col)) as i32,
+				     (tile_y * 8 + row) as i32,
 				     palette[pixel as usize]);
 		}	
 	    }
 	}
     }
     
-    let chrROM_texture = rl.load_texture_from_image(&thread, &image)?;
-    Ok(chrROM_texture)
+    let chrrom_texture = rl.load_texture_from_image(&thread, &image)?;
+    Ok(chrrom_texture)
 }
 
-fn loadPalette(path: &str) -> Result<[Color; 64], std::io::Error> {
+fn load_palette(path: &str) -> Result<[Color; 64], std::io::Error> {
     let bytes = fs::read(path)?;
     let mut colors = [Color::BLACK; 64];
     for i in 0..64 {
@@ -66,6 +66,20 @@ fn loadPalette(path: &str) -> Result<[Color; 64], std::io::Error> {
     Ok(colors)
 }
 
+// fn print_log(cpu: *const Cpu, prgrom: &[u8], cyc: usize) {
+// fn print_log(nes: *const Nes, prgrom: &[u8], cyc: usize) {
+fn print_log(nes: *const Nes, cart: *const Cart, cyc: usize) {
+    unsafe {
+	let pc = (*(*nes).cpu).pc;
+	let Some((_, mapped_addr)) =
+	    (*cart).mapper.map(CpuOrPpu::Cpu, IO::Read.into(), pc)
+	else { panic!() };
+	let (instr, _) = parse_instr_with_arg(&(*cart).rom.prgrom,
+					      mapped_addr as usize);
+	println!("{:04X} {} {}", pc, instr, cyc)
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     const CYCLES_PER_SECOND: f64 = 1790000.0 * 3.0;
     const SECONDS_PER_FRAME: f64 = 1.0 / 60.0;
@@ -74,14 +88,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!((CYCLES_PER_SECOND * SECONDS_PER_FRAME).floor() as usize,
 	       CYCLES_PER_FRAME);
 
-    let palette = loadPalette("2C02G_wiki.pal")?;
+    let palette = load_palette("2C02G_wiki.pal")?;
     // println!("{:?}", palette);
 
     // let rom_data = fs::read("/home/alex/Dropbox/nes/roms/Super_mario_brothers.nes")?;
     let rom_data = fs::read(
-	"/home/alex/Dropbox/nes/roms/Super Mario Bros. (Japan, USA).nes")?;
+	// "/home/alex/Dropbox/nes/roms/Super Mario Bros. (Japan, USA).nes")?;
+	"/home/alex/source/nes-test-roms/other/nestest.nes")?;
     let ines: INES = rom_data.into();
-    // println!("{:?}", ines);
+    // println!("{:?}", ines.mapper_id);
+    // println!("{:?}", ines.sz_prgrom);
     // std::process::exit(0);
     let cart = Cart::new(ines.clone()).expect("couldn't load ROM");
     let cart_ptr = &cart as *const Cart;
@@ -91,6 +107,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let nes_ptr = &nes as *const Nes;
     let mut nes_process = nes.run(cart);
 
+    // let cpu_ptr = unsafe { (*nes_ptr).cpu };
+    // let _ppu_ptr = unsafe { (*nes_ptr).ppu };
+
     // Set up raylib
     let (mut rl, thread) = raylib::init()
         .size(640, 480)
@@ -99,33 +118,52 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     rl.set_target_fps(60);
 
-    let chrROM_left = chrROMTexture(&mut rl, &thread, &ines, &palette, 0)?;
-    let chrROM_right = chrROMTexture(&mut rl, &thread, &ines, &palette, 1)?;
+    let chrrom_left = chrrom_texture(&mut rl, &thread, &ines, &palette, 0)?;
+    let chrrom_right = chrrom_texture(&mut rl, &thread, &ines, &palette, 1)?;
+
+    let mut pc = PC_MONITOR.load(Ordering::Relaxed);
 
     while !rl.window_should_close() {
-	let mut cycles = 0;
+	let mut cycles = 7*3;
 	// Run NES cycles for the frame
 	for _ in 0 .. CYCLES_PER_FRAME {
-	    cycles = yielded(Pin::new(&mut nes_process).resume(()))?;
+	    _ = yielded(Pin::new(&mut nes_process).resume(()))?;
+	    let new_pc = PC_MONITOR.load(Ordering::Relaxed);
+	    cycles += 1;
+	    if new_pc != pc {
+		// println!("{:04x}", new_pc);
+		// unsafe { print_log(cpu_ptr, &(*cart_ptr).rom.prgrom, cycles) }
+		print_log(nes_ptr, cart_ptr, cycles / 3);
+		pc = new_pc;
+	    }
+	    if cycles / 3 > 14606 {
+		return Ok(())
+	    }
+	    // println!("{}", cycles / 3);
 	}
 	
 	// println!("{}", cycles);
 
-	println!("{}", PC_MONITOR.load(Ordering::Relaxed));
-	unsafe {
-	    println!("{}", (*(*nes_ptr).cpu).pc);
-	}
+	// println!("{}", PC_MONITOR.load(Ordering::Relaxed));
+	// unsafe {
+	//     println!("{}", (*(*nes_ptr).cpu).pc);
+	// }
 	
         let mut d = rl.begin_drawing(&thread);         
         d.clear_background(Color::WHITE);
 	// d.draw_texture(&chrROM_texture, 0, 0, Color::WHITE);
-	d.draw_texture_ex(&chrROM_left,
-			  Vector2 { x: 0.0, y: 0.0 },
-			  0.0, 2.0, Color::WHITE);
-	d.draw_texture_ex(&chrROM_right,
-			  Vector2 { x: 256.0, y: 0.0 },
-			  0.0, 2.0, Color::WHITE);
+	d.draw_texture_ex(&chrrom_left,
+			  Vector2 { x: 341.0, y: 261.0 },
+			  0.0, 1.0, Color::WHITE);
+	d.draw_texture_ex(&chrrom_right,
+			  Vector2 { x: 341.0+128.0, y: 261.0 },
+			  0.0, 1.0, Color::WHITE);
         // d.draw_text("Hello, world!", 12, 12, 20, Color::BLACK);
+	let palette_tbl = unsafe { &(*nes_ptr).palette_tbl };
+	// println!("{:?}", palette_tbl);
+	for pal in 0..4 {
+	    
+	}
     }
 
     Ok(())

@@ -40,11 +40,11 @@ bitflags! {
 #[derive(Clone, Debug)]
 pub struct Cpu {
     pub pc: u16,
-    sp: u8,
-    a: u8,
-    x: u8,
-    y: u8,
-    status: Flags,
+    pub sp: u8,
+    pub a: u8,
+    pub x: u8,
+    pub y: u8,
+    pub status: Flags,
     pub read_buf: Arc<AtomicU8>,
     pub reset_signal: Arc<AtomicBool>,
     pub irq_signal: Arc<AtomicBool>,
@@ -110,7 +110,7 @@ impl Cpu {
 	self.x = 0;
 	self.y = 0;
 	self.status = Flags::empty();
-	self.read_buf.store(0, Ordering::Relaxed);
+	// self.read_buf.store(0, Ordering::Relaxed);
     }
 
     fn decode(op: u8) -> &'static Instr {
@@ -118,22 +118,22 @@ impl Cpu {
 	    Instr { opcode: opcode, mode: mode }
 	}
 	static INSTR_TABLE: [Instr; 256] = [
-	    i(Brk, Imp), i(Ora, Izx), i(Xxx, Imp), i(Xxx, Imp), i(Xxx, Imp), i(Ora, Zp0), i(Asl, Zp0), i(Xxx, Imp), i(Php, Imp), i(Ora, Imm), i(Asl, Imp), i(Xxx, Imp), i(Xxx, Imp), i(Ora, Abs), i(Asl, Abs), i(Xxx, Imp),
-	    i(Bpl, Rel), i(Ora, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Xxx, Imp), i(Ora, Zpx), i(Asl, Zpx), i(Xxx, Imp), i(Clc, Imp), i(Ora, Aby), i(Xxx, Imp), i(Xxx, Imp), i(Xxx, Imp), i(Ora, Abx), i(Asl, Abx), i(Xxx, Imp),
+	    i(Brk, Imp), i(Ora, Izx), i(Xxx, Imp), i(Xxx, Imp), i(Nop, Zp0), i(Ora, Zp0), i(Asl, Zp0), i(Xxx, Imp), i(Php, Imp), i(Ora, Imm), i(Asl, Imp), i(Xxx, Imp), i(Nop, Abs), i(Ora, Abs), i(Asl, Abs), i(Xxx, Imp),
+	    i(Bpl, Rel), i(Ora, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Nop, Zpx), i(Ora, Zpx), i(Asl, Zpx), i(Xxx, Imp), i(Clc, Imp), i(Ora, Aby), i(Nop, Imp), i(Xxx, Imp), i(Nop, Abx), i(Ora, Abx), i(Asl, Abx), i(Xxx, Imp),
 	    i(Jsr, Abs), i(And, Izx), i(Xxx, Imp), i(Xxx, Imp), i(Bit, Zp0), i(And, Zp0), i(Rol, Zp0), i(Xxx, Imp), i(Plp, Imp), i(And, Imm), i(Rol, Imp), i(Xxx, Imp), i(Bit, Abs), i(And, Abs), i(Rol, Abs), i(Xxx, Imp),
-	    i(Bmi, Rel), i(And, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Xxx, Imp), i(And, Zpx), i(Rol, Zpx), i(Xxx, Imp), i(Sec, Imp), i(And, Aby), i(Xxx, Imp), i(Xxx, Imp), i(Xxx, Imp), i(And, Abx), i(Rol, Abx), i(Xxx, Imp),
-	    i(Rti, Imp), i(Eor, Izx), i(Xxx, Imp), i(Xxx, Imp), i(Xxx, Imp), i(Eor, Zp0), i(Lsr, Zp0), i(Xxx, Imp), i(Pha, Imp), i(Eor, Imm), i(Lsr, Imp), i(Xxx, Imp), i(Jmp, Abs), i(Eor, Abs), i(Lsr, Abs), i(Xxx, Imp),
-	    i(Bvc, Rel), i(Eor, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Xxx, Imp), i(Eor, Zpx), i(Lsr, Zpx), i(Xxx, Imp), i(Cli, Imp), i(Eor, Aby), i(Xxx, Imp), i(Xxx, Imp), i(Xxx, Imp), i(Eor, Abx), i(Lsr, Abx), i(Xxx, Imp),
-	    i(Rts, Imp), i(Adc, Izx), i(Xxx, Imp), i(Xxx, Imp), i(Xxx, Imp), i(Adc, Zp0), i(Ror, Zp0), i(Xxx, Imp), i(Pla, Imp), i(Adc, Imm), i(Ror, Imp), i(Xxx, Imp), i(Jmp, Ind), i(Adc, Abs), i(Ror, Abs), i(Xxx, Imp),
-	    i(Bvs, Rel), i(Adc, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Xxx, Imp), i(Adc, Zpx), i(Ror, Zpx), i(Xxx, Imp), i(Sei, Imp), i(Adc, Aby), i(Xxx, Imp), i(Xxx, Imp), i(Xxx, Imp), i(Adc, Abx), i(Ror, Abx), i(Xxx, Imp),
-	    i(Xxx, Imp), i(Sta, Izx), i(Xxx, Imp), i(Xxx, Imp), i(Sty, Zp0), i(Sta, Zp0), i(Stx, Zp0), i(Xxx, Imp), i(Dey, Imp), i(Xxx, Imp), i(Txa, Imp), i(Xxx, Imp), i(Sty, Abs), i(Sta, Abs), i(Stx, Abs), i(Xxx, Imp),
+	    i(Bmi, Rel), i(And, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Nop, Zpx), i(And, Zpx), i(Rol, Zpx), i(Xxx, Imp), i(Sec, Imp), i(And, Aby), i(Nop, Imp), i(Xxx, Imp), i(Nop, Abx), i(And, Abx), i(Rol, Abx), i(Xxx, Imp),
+	    i(Rti, Imp), i(Eor, Izx), i(Xxx, Imp), i(Xxx, Imp), i(Nop, Zp0), i(Eor, Zp0), i(Lsr, Zp0), i(Xxx, Imp), i(Pha, Imp), i(Eor, Imm), i(Lsr, Imp), i(Xxx, Imp), i(Jmp, Abs), i(Eor, Abs), i(Lsr, Abs), i(Xxx, Imp),
+	    i(Bvc, Rel), i(Eor, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Nop, Zpx), i(Eor, Zpx), i(Lsr, Zpx), i(Xxx, Imp), i(Cli, Imp), i(Eor, Aby), i(Nop, Imp), i(Xxx, Imp), i(Nop, Abx), i(Eor, Abx), i(Lsr, Abx), i(Xxx, Imp),
+	    i(Rts, Imp), i(Adc, Izx), i(Xxx, Imp), i(Xxx, Imp), i(Nop, Zp0), i(Adc, Zp0), i(Ror, Zp0), i(Xxx, Imp), i(Pla, Imp), i(Adc, Imm), i(Ror, Imp), i(Xxx, Imp), i(Jmp, Ind), i(Adc, Abs), i(Ror, Abs), i(Xxx, Imp),
+	    i(Bvs, Rel), i(Adc, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Nop, Zpx), i(Adc, Zpx), i(Ror, Zpx), i(Xxx, Imp), i(Sei, Imp), i(Adc, Aby), i(Nop, Imp), i(Xxx, Imp), i(Nop, Abx), i(Adc, Abx), i(Ror, Abx), i(Xxx, Imp),
+	    i(Nop, Imm), i(Sta, Izx), i(Xxx, Imp), i(Xxx, Imp), i(Sty, Zp0), i(Sta, Zp0), i(Stx, Zp0), i(Xxx, Imp), i(Dey, Imp), i(Xxx, Imp), i(Txa, Imp), i(Xxx, Imp), i(Sty, Abs), i(Sta, Abs), i(Stx, Abs), i(Xxx, Imp),
 	    i(Bcc, Rel), i(Sta, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Sty, Zpx), i(Sta, Zpx), i(Stx, Zpy), i(Xxx, Imp), i(Tya, Imp), i(Sta, Aby), i(Txs, Imp), i(Xxx, Imp), i(Xxx, Imp), i(Sta, Abx), i(Xxx, Imp), i(Xxx, Imp),
 	    i(Ldy, Imm), i(Lda, Izx), i(Ldx, Imm), i(Xxx, Imp), i(Ldy, Zp0), i(Lda, Zp0), i(Ldx, Zp0), i(Xxx, Imp), i(Tay, Imp), i(Lda, Imm), i(Tax, Imp), i(Xxx, Imp), i(Ldy, Abs), i(Lda, Abs), i(Ldx, Abs), i(Xxx, Imp),
 	    i(Bcs, Rel), i(Lda, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Ldy, Zpx), i(Lda, Zpx), i(Ldx, Zpy), i(Xxx, Imp), i(Clv, Imp), i(Lda, Aby), i(Tsx, Imp), i(Xxx, Imp), i(Ldy, Abx), i(Lda, Abx), i(Ldx, Aby), i(Xxx, Imp),
 	    i(Cpy, Imm), i(Cmp, Izx), i(Xxx, Imp), i(Xxx, Imp), i(Cpy, Zp0), i(Cmp, Zp0), i(Dec, Zp0), i(Xxx, Imp), i(Iny, Imp), i(Cmp, Imm), i(Dex, Imp), i(Xxx, Imp), i(Cpy, Abs), i(Cmp, Abs), i(Dec, Abs), i(Xxx, Imp),
-	    i(Bne, Rel), i(Cmp, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Xxx, Imp), i(Cmp, Zpx), i(Dec, Zpx), i(Xxx, Imp), i(Cld, Imp), i(Cmp, Aby), i(Xxx, Imp), i(Xxx, Imp), i(Xxx, Imp), i(Cmp, Abx), i(Dec, Abx), i(Xxx, Imp),
+	    i(Bne, Rel), i(Cmp, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Nop, Zpx), i(Cmp, Zpx), i(Dec, Zpx), i(Xxx, Imp), i(Cld, Imp), i(Cmp, Aby), i(Nop, Imp), i(Xxx, Imp), i(Nop, Abx), i(Cmp, Abx), i(Dec, Abx), i(Xxx, Imp),
 	    i(Cpx, Imm), i(Sbc, Izx), i(Xxx, Imp), i(Xxx, Imp), i(Cpx, Zp0), i(Sbc, Zp0), i(Inc, Zp0), i(Xxx, Imp), i(Inx, Imp), i(Sbc, Imm), i(Nop, Imp), i(Xxx, Imp), i(Cpx, Abs), i(Sbc, Abs), i(Inc, Abs), i(Xxx, Imp),
-	    i(Beq, Rel), i(Sbc, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Xxx, Imp), i(Sbc, Zpx), i(Inc, Zpx), i(Xxx, Imp), i(Sed, Imp), i(Sbc, Aby), i(Xxx, Imp), i(Xxx, Imp), i(Xxx, Imp), i(Sbc, Abx), i(Inc, Abx), i(Xxx, Imp),
+	    i(Beq, Rel), i(Sbc, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Nop, Zpx), i(Sbc, Zpx), i(Inc, Zpx), i(Xxx, Imp), i(Sed, Imp), i(Sbc, Aby), i(Nop, Imp), i(Xxx, Imp), i(Nop, Abx), i(Sbc, Abx), i(Inc, Abx), i(Xxx, Imp),
 	];
 	&INSTR_TABLE[op as usize]
     }
@@ -251,13 +251,14 @@ impl Cpu {
 		    let _ = fetch!(0x00FF);
 		    let _ = fetch!(0x0100);
 		    self.reset();
-		    let _ = pop!();
-		    let _ = pop!();
-		    let _ = pop!();
+		    // let _ = pop!();
+		    // let _ = pop!();
+		    // let _ = pop!();
 		    let pcl = fetch!(0xFFFC) as u16;
 		    self.set_flag(Flags::I, true); // ?
 		    let pch = fetch!(0xFFFD) as u16;
 		    self.pc = (pch << 8) | pcl;
+		    self.reset_signal.store(false, Ordering::Relaxed);
 		}
 
 		if self.nmi_signal.load(Ordering::Relaxed) {
@@ -421,7 +422,12 @@ impl Cpu {
 		}
 
 		match instr.opcode {
-		    Nop => (),
+		    Nop => match instr.mode {
+			AddrMode::Imp => (),
+			_ => {
+			    let _ = fetch_oops!();
+			}
+		    }
 		    And => {
 			let val = fetch_oops!();
 			self.a &= val;
@@ -771,6 +777,7 @@ impl Cpu {
 
 		    // Xxx => panic!("Unsupported opcode {:02x}", instr_code)
 		    Xxx => return format!("Unsupported opcode {:02x}", instr_code)
+		    // Xxx => (),
 		}
 	    }
 	};
@@ -812,6 +819,63 @@ struct Instr {
 //     }
 // }
 
+#[derive(Clone, Copy, Debug)]
+pub enum Arg {
+    Rel(i8),
+    Abs(u16),
+    Imm(u8),
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct InstrWithArg {
+    instr: Instr,
+    arg: Option<Arg>
+}
+
+impl fmt::Display for Arg {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+	match self {
+	    Arg::Rel(x) => write!(f, "Rel({:x})", x),
+	    Arg::Abs(x) => write!(f, "Abs({:x})", x),
+	    Arg::Imm(x) => write!(f, "Imm({:x})", x),
+	}
+    }
+}
+
+impl fmt::Display for InstrWithArg {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+	match self.arg {
+	    None => write!(f, "{:?}", self.instr),
+	    Some(x) => write!(f, "{:?} {}", self.instr, x)
+	}
+    }
+}
+
+pub fn parse_instr_with_arg(mem: &[u8], pc: usize) -> (InstrWithArg, usize) {
+    let instr_code = mem[pc];
+    let instr = Cpu::decode(instr_code);
+    match instr.mode {
+	Imp => (InstrWithArg { instr: *instr,
+			       arg: None }, 1),
+	Rel => {
+	    let byte = mem[pc+1];
+	    (InstrWithArg { instr: *instr,
+			    arg: Some(Arg::Rel(byte as i8)) }, 1)
+	}
+	Imm => {
+	    let byte = mem[pc+1];
+	    (InstrWithArg { instr: *instr,
+			    arg: Some(Arg::Imm(byte)) }, 1)
+	}
+	_ => {
+	    let lo = mem[pc+1] as u16;
+	    let hi = mem[pc+2] as u16;
+	    (InstrWithArg { instr: *instr,
+			    arg: Some(Arg::Abs((hi << 8) | lo)) }, 2)
+	}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -825,56 +889,6 @@ mod tests {
 	Rel(i8),
 	Abs(u16),
 	Imm(u8),
-    }
-
-    #[derive(Clone, Copy, Debug)]
-    struct InstrWithArg {
-	instr: Instr,
-	arg: Option<Arg>
-    }
-
-    impl fmt::Display for Arg {
-	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-	    match self {
-		Arg::Rel(x) => write!(f, "Rel({})", x),
-		Arg::Abs(x) => write!(f, "Abs({})", x),
-		Arg::Imm(x) => write!(f, "Imm({})", x),
-	    }
-	}
-    }
-
-    impl fmt::Display for InstrWithArg {
-	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-	    match self.arg {
-		None => write!(f, "{:?}", self.instr),
-		Some(x) => write!(f, "{:?} {}", self.instr, x)
-	    }
-	}
-    }
-
-    fn parse_instr_with_arg(mem: &[u8], pc: usize) -> (InstrWithArg, usize) {
-	let instr_code = mem[pc];
-	let instr = Cpu::decode(instr_code);
-	match instr.mode {
-	    Imp => (InstrWithArg { instr: *instr,
-				   arg: None }, 1),
-	    Rel => {
-		let byte = mem[pc+1];
-		(InstrWithArg { instr: *instr,
-				arg: Some(Arg::Rel(byte as i8)) }, 1)
-	    }
-	    Imm => {
-		let byte = mem[pc+1];
-		(InstrWithArg { instr: *instr,
-				arg: Some(Arg::Imm(byte)) }, 1)
-	    }
-	    _ => {
-		let lo = mem[pc+1] as u16;
-		let hi = mem[pc+2] as u16;
-		(InstrWithArg { instr: *instr,
-				arg: Some(Arg::Abs((hi << 8) | lo)) }, 2)
-	    }
-	}
     }
 
     #[derive(Debug, Serialize, Deserialize)]

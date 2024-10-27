@@ -14,49 +14,49 @@ enum TVSystem { NTSC, PAL, Dual }
 // iNES format ROM
 #[derive(Clone, Debug)]
 pub struct INES {
-    szPRGROM: u8,
-    szCHRROM: u8,
-    nameTblArrangement: Arrangement,
-    batteryPRGRAM: bool,
-    altNameTblLayout: bool,
-    mapperId: u8,
-    vsUnisystem: bool,
-    playChoice: bool,
+    pub sz_prgrom: u8,
+    sz_chrrom: u8,
+    name_tbl_arrangement: Arrangement,
+    battery_prgram: bool,
+    alt_name_tbl_layout: bool,
+    pub mapper_id: u8,
+    vs_unisystem: bool,
+    play_choice: bool,
     nes2: bool,
     trainer: Option<Box<[u8; 512]>>,
-    pub prgROM: Vec<u8>,
-    pub chrROM: Vec<u8>,
+    pub prgrom: Vec<u8>,
+    pub chrrom: Vec<u8>,
 }
 
 impl From<Vec<u8>> for INES {
     fn from(bytes: Vec<u8>) -> INES {
-	let szPRGROM = bytes[4];
-	let szCHRROM = bytes[5];
+	let sz_prgrom = bytes[4];
+	let sz_chrrom = bytes[5];
 	
 	let flags6 = bytes[6];
-	let nameTblArrangement = if flags6 & 0b00000001 > 0 {
+	let name_tbl_arrangement = if flags6 & 0b00000001 > 0 {
 	    Arrangement::Vertical
 	} else {
 	    Arrangement::Horizontal
 	};
-	let batteryPRGRAM = flags6 & 0b00000010 > 1;
-	let hasTrainer = flags6 & 0b00000100 > 1;
-	let altNameTblLayout = flags6 & 0b00001000 > 1;
-	let mapperId_lo = flags6 & 0xF0;
+	let battery_prgram = flags6 & 0b00000010 > 1;
+	let has_trainer = flags6 & 0b00000100 > 1;
+	let alt_name_tbl_layout = flags6 & 0b00001000 > 1;
+	let mapper_id_lo = flags6 & 0xF0;
 
 	let flags7 = bytes[7];
-	let vsUnisystem = flags7 & 0b00000001 > 1;
-	let playChoice = flags7 & 0b00000010 > 1;
+	let vs_unisystem = flags7 & 0b00000001 > 1;
+	let play_choice = flags7 & 0b00000010 > 1;
 	let nes2 = flags7 & 0b00001100 == 2;
-	let mapperId_hi = flags7 & 0xF0;
-	let mapperId = (mapperId_hi << 4) | mapperId_lo;
+	let mapper_id_hi = flags7 & 0xF0;
+	let mapper_id = (mapper_id_hi << 4) | mapper_id_lo;
 
-	let szPRGRAM = bytes[8];
+	let _sz_prgram = bytes[8];
 
 	// Ignore bytes[9]
 
 	let flags10 = bytes[10];
-	let tvSystem = match bytes[10] {
+	let _tv_system = match flags10 {
 	    0 => TVSystem::NTSC,
 	    2 => TVSystem::PAL,
 	    _ => TVSystem::Dual,
@@ -66,7 +66,7 @@ impl From<Vec<u8>> for INES {
 
 	let mut offset: usize = 16;
 
-	let trainer: Option<Box<[u8; 512]>> = if hasTrainer {
+	let trainer: Option<Box<[u8; 512]>> = if has_trainer {
 	    let mut a = [0 as u8; 512];
 	    a.copy_from_slice(&bytes[16..16+512]);
 	    offset += 512;
@@ -75,27 +75,27 @@ impl From<Vec<u8>> for INES {
 	    None
 	};
 
-	let prgROM: Vec<u8> =
-	    bytes[offset .. offset + 16384 * szPRGROM as usize].to_vec();
-	offset += 16384 * szPRGROM as usize;
+	let prgrom: Vec<u8> =
+	    bytes[offset .. offset + 16384 * sz_prgrom as usize].to_vec();
+	offset += 16384 * sz_prgrom as usize;
 
-	let chrROM: Vec<u8> =
-	    bytes[offset .. offset + 8192 * szCHRROM as usize].to_vec();
+	let chrrom: Vec<u8> =
+	    bytes[offset .. offset + 8192 * sz_chrrom as usize].to_vec();
 	// offset += 16384 * szPRGROM as usize;
 
 	INES {
-	    szPRGROM: szPRGROM,
-	    szCHRROM: szCHRROM,
-	    nameTblArrangement: nameTblArrangement,
-	    batteryPRGRAM: batteryPRGRAM,
-	    altNameTblLayout: altNameTblLayout,
-	    mapperId: mapperId,
-	    vsUnisystem: vsUnisystem,
-	    playChoice: playChoice,
+	    sz_prgrom: sz_prgrom,
+	    sz_chrrom: sz_chrrom,
+	    name_tbl_arrangement: name_tbl_arrangement,
+	    battery_prgram: battery_prgram,
+	    alt_name_tbl_layout: alt_name_tbl_layout,
+	    mapper_id: mapper_id,
+	    vs_unisystem: vs_unisystem,
+	    play_choice: play_choice,
 	    nes2: nes2,
 	    trainer: trainer,
-	    prgROM: prgROM,
-	    chrROM: chrROM,
+	    prgrom: prgrom,
+	    chrrom: chrrom,
 	}
     }
 }
@@ -165,13 +165,13 @@ pub trait Mapper where {
 }
 
 struct Mapper000 {
-    twoPRGBanks: bool
+    two_prg_banks: bool
 }
 
 impl Mapper000 {
-    fn new(twoPRGBanks: bool) -> Mapper000 {
+    fn new(two_prg_banks: bool) -> Mapper000 {
 	Mapper000 {
-	    twoPRGBanks: twoPRGBanks
+	    two_prg_banks: two_prg_banks
 	}
     }
 }
@@ -185,12 +185,12 @@ impl Mapper for Mapper000 {
 	       -> Option<(MapTarget, u16)> {
 	match cp {
 	    CpuOrPpu::Cpu => {
-		// assert(addr >= 0x8000)?;
+		assert(addr >= 0x8000)?;
 		if addr < 0x8000 {
 		    Some((MapTarget::Default, addr))
 		} else {
 		Some((MapTarget::Cartridge(PrgOrChr::Prg),
-		    addr & (if self.twoPRGBanks { 0x7FFF } else { 0x3FFF })))
+		      addr & (if self.two_prg_banks { 0x7FFF } else { 0x3FFF })))
 		}
 	    }
 	    CpuOrPpu::Ppu => {
@@ -209,8 +209,8 @@ pub struct Cart {
 
 impl Cart {
     fn select_mapper(rom: &INES) -> Option<Box<dyn Mapper>> {
-	match rom.mapperId {
-	    0 => Some(Box::new(Mapper000::new(rom.szCHRROM > 1))),
+	match rom.mapper_id {
+	    0 => Some(Box::new(Mapper000::new(rom.sz_chrrom > 1))),
 	    _ => None
 	}
     }
@@ -223,24 +223,24 @@ impl Cart {
     }
     pub fn read(&self, cp: PrgOrChr, addr: u16) -> Result<u8, String> {
 	match cp {
-	    PrgOrChr::Prg => self.rom.prgROM.get(addr as usize)
-		.ok_or("PRGROM read out of bounds".into()).copied(),
-	    PrgOrChr::Chr => self.rom.chrROM.get(addr as usize)
+	    PrgOrChr::Prg => self.rom.prgrom.get(addr as usize)
+		.ok_or(format!("PRGROM read out of bounds: {:04x}", addr)).copied(),
+	    PrgOrChr::Chr => self.rom.chrrom.get(addr as usize)
 		.ok_or("CHRROM read out of bounds".into()).copied(),
 	}
     }
     pub fn write(&mut self, cp: PrgOrChr, addr: u16, byte: u8) -> Result<(), String> {
 	match cp {
 	    PrgOrChr::Prg => {
-		if (addr as usize) < self.rom.prgROM.len() {
-		    self.rom.prgROM[addr as usize] = byte
+		if (addr as usize) < self.rom.prgrom.len() {
+		    self.rom.prgrom[addr as usize] = byte
 		} else {
 		    return Err("PRGROM write out of bounds".into())
 		}
 	    }
 	    PrgOrChr::Chr => {
-		if (addr as usize) < self.rom.chrROM.len() {
-		    self.rom.chrROM[addr as usize] = byte
+		if (addr as usize) < self.rom.chrrom.len() {
+		    self.rom.chrrom[addr as usize] = byte
 		} else {
 		    return Err("CHRROM write out of bounds".into())
 		}

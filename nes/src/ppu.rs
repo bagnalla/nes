@@ -1,5 +1,3 @@
-#![feature(coroutines, coroutine_trait, stmt_expr_attributes)]
-
 use std::ops::{Coroutine};
 use std::fmt;
 use std::sync::Arc;
@@ -37,7 +35,7 @@ use cpu::IO;
 // each palette is also unique in that its color value is shared
 // between the background and sprite palettes, so writing to
 // either one updates the same internal storage."
-fn paletteTblAddr(addr: u16) -> u16 {
+fn palette_tbl_addr(addr: u16) -> u16 {
     match addr {
 	0x0010 => 0x0000,
 	0x0014 => 0x0004,
@@ -122,8 +120,8 @@ pub struct PpuRegs {
     
     read_buf: Arc<AtomicU8>,
 
-    // For emulating open bus behavior
-    io_bus: Arc<AtomicU16>,
+    // All reads and writes go through the IO bus.
+    io_bus: Arc<AtomicU8>,
 }
 
 impl PpuRegs {
@@ -143,76 +141,54 @@ impl PpuRegs {
 	    x:       Arc::new(AtomicU8::new(0)),
 	    w:       Arc::new(AtomicBool::new(false)),
 	    read_buf: Arc::new(AtomicU8::new(0)),
-	    io_bus:   Arc::new(AtomicU16::new(0)),
+	    io_bus:   Arc::new(AtomicU8::new(0)),
 	}
     }
 
-    fn store_io_bus(&self, val: u16) {
-	self.io_bus.store(val, Ordering::Relaxed);
-    }
-    fn store_io_bus_lo(&self, byte: u8) {
-	self.io_bus.store((self.io_bus.load(Ordering::Relaxed) & 0xFF00)
-			  | (byte as u16), Ordering::Relaxed);
-    }
-    fn store_io_bus_hi(&self, byte: u8) {
-	self.io_bus.store(((byte as u16) << 8) |
-			  (self.io_bus.load(Ordering::Relaxed) & 0x00FF),
-			  Ordering::Relaxed);
-    }
-    fn load_io_bus(&self) -> u16 {
+    pub fn read_bus(&self) -> u8 {
 	self.io_bus.load(Ordering::Relaxed)
     }
+    pub fn write_bus(&self, val: u8) {
+	self.io_bus.store(val, Ordering::Relaxed)
+    }
 
-    pub fn read_bus(&self) -> u8 {
-	self.load_io_bus() as u8
+    pub fn load_ctrl(&self) {
+	self.write_bus(self.ctrl.load(Ordering::Relaxed))
     }
-    pub fn read_ctrl(&self) -> u8 {
-	let ctrl = self.ctrl.load(Ordering::Relaxed);
-	self.store_io_bus_lo(ctrl);
-	ctrl
+    pub fn store_ctrl(&self) {
+	self.ctrl.store(self.read_bus(), Ordering::Relaxed)
     }
-    pub fn write_ctrl(&self, byte: u8) {
-	self.store_io_bus_lo(byte);
-	self.ctrl.store(byte, Ordering::Relaxed)
+    pub fn load_mask(&self) {
+	self.write_bus(self.mask.load(Ordering::Relaxed))
     }
-    pub fn read_mask(&self) -> u8 {
-	let mask = self.mask.load(Ordering::Relaxed);
-	self.store_io_bus_lo(mask);
-	mask
+    pub fn store_mask(&self) {
+	self.mask.store(self.read_bus(), Ordering::Relaxed)
     }
-    pub fn write_mask(&self, byte: u8) {
-	self.store_io_bus_lo(byte);
-	self.mask.store(byte, Ordering::Relaxed)
+    pub fn load_status(&self) {
+	let masked_status = self.status.load(Ordering::Relaxed) & 0b00000111;
+	self.set_w(false); // clear w
+	// self.status.clear_bit(7, Ordering::Relaxed); // clear vblank flag
+	// self.write_bus((self.read_bus() & 0b11111000) | masked_status)
+
+	self.status.set_bit(7, Ordering::Relaxed); // clear vblank flag
+	self.write_bus((self.read_bus() & 0b11111000) | masked_status)
     }
-    pub fn read_status(&self) -> u8 {
-	self.store_w(false); // clear w on status read
-	let status = self.status.load(Ordering::Relaxed);
-	self.io_bus.store(
-	    (self.io_bus.load(Ordering::Relaxed) & 0b1111111111111000)
-		| (status as u16), Ordering::Relaxed);
-	status
+    pub fn store_status(&self) {
+	let bus_masked = self.read_bus() & 0b00000111;
+	let old_status = self.status.load(Ordering::Relaxed) & 0b11111000;
+	self.status.store(bus_masked | old_status, Ordering::Relaxed)
     }
-    pub fn write_status(&self, byte: u8) {
-	self.store_io_bus_lo(byte);
-	self.status.store(byte, Ordering::Relaxed)
+    pub fn load_oamaddr(&self) {
+	self.oamaddr.store(self.read_bus(), Ordering::Relaxed)
     }
-    pub fn read_oamaddr(&self) -> u8 {
-	let oamaddr = self.oamaddr.load(Ordering::Relaxed);
-	self.store_io_bus_lo(oamaddr);
-	oamaddr
+    pub fn store_oamaddr(&self) {
+	self.oamaddr.store(self.read_bus(), Ordering::Relaxed)
     }
-    pub fn write_oamaddr(&self, byte: u8) {
-	self.store_io_bus_lo(byte);
-	self.oamaddr.store(byte, Ordering::Relaxed)
+    pub fn load_oamdata(&self) {
+	self.oamdata.store(self.read_bus(), Ordering::Relaxed)
     }
-    pub fn read_oamdata(&self) -> u8 {
-	let oamdata = self.oamdata.load(Ordering::Relaxed);
-	self.store_io_bus_lo(oamdata);
-	oamdata
-    }
-    pub fn write_oamdata(&self, byte: u8) {
-	self.store_io_bus_lo(byte);
-	self.oamdata.store(byte, Ordering::Relaxed)
+    pub fn store_oamdata(&self) {
+	self.oamdata.store(self.read_bus(), Ordering::Relaxed)
     }
     // pub fn read_scroll(&self) -> u16 {
     // 	self.scroll.load(Ordering::Relaxed)
@@ -224,14 +200,17 @@ impl PpuRegs {
     // pub fn read_addr(&self) -> u8 {
     // 	self.io_bus.load(Ordering::Relaxed) as u8
     // }
-    pub fn write_addr(&self, byte: u8) {
-	if self.load_w() {
-	    self.store_t((self.load_t() & 0xFF00) | byte as u16);
-	    self.store_io_bus_lo(byte);
-	    self.addr.store(
-		(self.addr.load(Ordering::Relaxed) & 0xFF00) | byte as u16,
-		Ordering::Relaxed);
-	    self.store_w(true)
+    pub fn store_addr(&self) {
+	let byte = self.read_bus();
+	if self.get_w() {
+	    self.set_t(((byte as u16) << 8) | (self.get_t() & 0x00FF));
+	    self.set_v(((byte as u16) << 8) |
+		       (self.addr.load(Ordering::Relaxed) & 0x00FF));
+	    // self.addr.store(
+	    // 	((byte as u16) << 8) | (self.addr.load(Ordering::Relaxed) & 0x00FF),
+	    // 	Ordering::Relaxed);
+	    self.addr.store(self.get_v(), Ordering::Relaxed);
+	    self.set_w(true)
 	} else {
 	    // TODO: During raster effects, if the second write to
 	    // PPUADDR happens at specific times, at most one axis of
@@ -239,41 +218,47 @@ impl PpuRegs {
 	    // value and the current value. The only safe time to
 	    // finish the second write is during blanking; see PPU
 	    // scrolling for more specific timing.
-	    self.store_t(((byte as u16) << 8) | (self.load_t() & 0x00FF));
-	    self.store_io_bus_hi(byte);
+	    self.set_t((self.get_t() & 0xFF00) | byte as u16);
 	    self.addr.store(
-		((byte as u16) << 8) | (self.addr.load(Ordering::Relaxed) & 0x00FF),
+		(self.addr.load(Ordering::Relaxed) & 0xFF00) | byte as u16,
 		Ordering::Relaxed);
-	    self.store_w(false)
+	    self.set_w(false)
 	}
-	// self.io_bus.store(scroll, Ordering::Relaxed);
-	// self.scroll.store(scroll, Ordering::Relaxed)
     }
-    pub fn read_data(&self) -> u8 {
-	let data = self.data.load(Ordering::Relaxed);
-	self.store_io_bus_lo(data);
-	data
+    pub fn load_data(&self) {
+	self.data.store(self.read_bus(), Ordering::Relaxed)
     }
 
-    fn load_w(&self) -> bool {
-	self.w.load(Ordering::Relaxed)
+    fn get_v(&self) -> u16 {
+	self.v.load(Ordering::Relaxed)
     }
-    fn store_w(&self, b: bool) {
-	self.w.store(b, Ordering::Relaxed)
+    fn set_v(&self, val: u16) {
+	self.v.store(val, Ordering::Relaxed)
     }
-    fn load_t(&self) -> u16 {
+    fn get_t(&self) -> u16 {
 	self.t.load(Ordering::Relaxed)
     }
-    fn store_t(&self, val: u16) {
+    fn set_t(&self, val: u16) {
 	self.t.store(val, Ordering::Relaxed)
     }
+    fn get_x(&self) -> u8 {
+	self.x.load(Ordering::Relaxed)
+    }
+    fn set_x(&self, byte: u8) {
+	self.x.store(byte, Ordering::Relaxed)
+    }
+    fn get_w(&self) -> bool {
+	self.w.load(Ordering::Relaxed)
+    }
+    fn set_w(&self, b: bool) {
+	self.w.store(b, Ordering::Relaxed)
+    }
 
-    // Perform a read or write on the PPU bus. Assumes argument
-    // address has already been passed through the mapper.
+    // Perform a read or write on the PPU bus.
     pub fn do_io(&self,
 	     cart: &mut Cart,
 	     vram: &mut [u8],
-	     paletteTbl: &mut [u8],
+	     palette_tbl: &mut [u8],
 	     io: IO,	     
     ) -> Result<(), String> {
 
@@ -281,6 +266,7 @@ impl PpuRegs {
 	    // Transfer read buf to PPUDATA register
 	    self.data.store(self.read_buf.load(Ordering::Relaxed),
 			    Ordering::Relaxed);
+	    self.load_data()
 	}
 
 	let mapped = cart.mapper.map(CpuOrPpu::Ppu, io.into(),
@@ -307,13 +293,14 @@ impl PpuRegs {
 		if mapped_addr <= 0x1FFF {
 		    match io {
 			IO::Read => {
-			    let byte = cart.rom.chrROM[mapped_addr as usize];
+			    let byte = cart.rom.chrrom[mapped_addr as usize];
 			    self.read_buf.store(byte, Ordering::Relaxed)
 			}
-			IO::Write(byte) => {
+			IO::Write(_) => {
 			    // Is it possible to check if CHR is RAM?
 			    // To throw error here if not RAM...
-			    cart.rom.chrROM[mapped_addr as usize] = byte;
+			    let byte = self.read_bus();
+			    cart.rom.chrrom[mapped_addr as usize] = byte;
 			    self.data.store(byte, Ordering::Relaxed)
 			}
 		    }
@@ -326,7 +313,8 @@ impl PpuRegs {
 			    let byte = vram[wrapped_addr as usize];
 			    self.read_buf.store(byte, Ordering::Relaxed)
 			}
-			IO::Write(byte) => {
+			IO::Write(_) => {
+			    let byte = self.read_bus();
 			    vram[wrapped_addr as usize] = byte;
 			    self.data.store(byte, Ordering::Relaxed)
 			}
@@ -335,14 +323,15 @@ impl PpuRegs {
 		// Palette memory
 		else if mapped_addr <= 0x3FFF {
 		    let wrapped_addr = mapped_addr & 0x001F;
-		    let palette_addr = paletteTblAddr(wrapped_addr);
+		    let palette_addr = palette_tbl_addr(wrapped_addr);
 		    match io {
 			IO::Read => {
-			    let byte = paletteTbl[palette_addr as usize];
+			    let byte = palette_tbl[palette_addr as usize];
 			    self.read_buf.store(byte, Ordering::Relaxed)
 			}
-			IO::Write(byte) => {
-			    paletteTbl[palette_addr as usize] = byte;
+			IO::Write(_) => {
+			    let byte = self.read_bus();
+			    palette_tbl[palette_addr as usize] = byte;
 			    self.data.store(byte, Ordering::Relaxed)
 			}
 		    }
@@ -357,7 +346,8 @@ impl PpuRegs {
 			let byte = cart.read(tgt, mapped_addr)?;
 			self.read_buf.store(byte, Ordering::Relaxed)
 		    }
-		    IO::Write(byte) => {
+		    IO::Write(_) => {
+			let byte = self.read_bus();
 			cart.write(tgt, mapped_addr, byte)?;
 			self.data.store(byte, Ordering::Relaxed)
 		    }

@@ -8,15 +8,15 @@ use std::pin::Pin;
 use std::ptr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::time::{Duration, Instant};
-use std::thread::sleep;
+// use std::time::{Duration, Instant};
+// use std::thread::sleep;
 // use std::time::{Instant};
 
 // use atomic_bitfield::AtomicBitField as _;
 
 use cpu::{Cpu, CpuEvent, IO};
-use crate::cart::{Cart, CpuOrPpu, MapTarget};
-use crate::ppu::{Ppu, PpuCtrl, PpuMask, PpuRegs, PpuStatus};
+use crate::cart::{Cart, CpuOrPpu, MapTarget, PrgOrChr};
+use crate::ppu::{Ppu, PpuRegs};
 
 pub fn yielded<Y, R: std::fmt::Debug>(state: CoroutineState<Y, R>)
 				      -> Result<Y, String> {
@@ -35,11 +35,9 @@ pub struct Nes {
     ram: Vec<u8>,
     vram: [u8; 2048],
     // nameTbl: [[u8; 1024]; 2],
-    paletteTbl: [u8; 32],
+    pub palette_tbl: [u8; 32],
     pub cpu: *const Cpu,
     pub ppu: *mut Ppu,
-
-    ppu_address: u16,
 }
 
 impl Nes {
@@ -49,13 +47,12 @@ impl Nes {
 	    // ppu: Ppu::new(),
 	    // ram: [0; 2048],
 	    // ram: [0; 2_usize.pow(16)],
-	    ram: Vec::new(),
+	    ram: vec![0; 2048],
 	    vram: [0; 2048],
 	    // nameTbl: [[0; 1024]; 2],
-	    paletteTbl: [0; 32],
+	    palette_tbl: [0; 32],
 	    cpu: ptr::null(),
 	    ppu: ptr::null_mut(),
-	    ppu_address: 0,
 	}
     }
 
@@ -195,30 +192,37 @@ impl Nes {
 	    match io {
 		IO::Read => {
 		    match wrapped_addr {
-			2 => cpu_buf.store(ppu_regs.read_status(), Ordering::Relaxed),
-			6 => cpu_buf.store(ppu_regs.read_bus(), Ordering::Relaxed),
+			0 => (),
+			1 => (),
+			2 => ppu_regs.load_status(),
+			3 => (),
+			4 => ppu_regs.load_oamdata(),
+			5 => (),
+			6 => (),
 			7 => { // PPUDATA
 			    ppu_regs.do_io(cart,
 					   &mut self.vram,
-					   &mut self.paletteTbl,
+					   &mut self.palette_tbl,
 					   IO::Read)?;
-			    cpu_buf.store(ppu_regs.read_data(), Ordering::Relaxed)
+			    ppu_regs.load_data()
 			}
-			_ => todo!()
+			_ => todo!("{}", wrapped_addr)
 		    }
+		    cpu_buf.store(ppu_regs.read_bus(), Ordering::Relaxed)
 		    // TODO: "Read conflict with DPCM samples" on PPU
 		    // registers page.
 		}
 		IO::Write(byte) => {
+		    ppu_regs.write_bus(byte);
 		    match wrapped_addr {
-			0 => ppu_regs.write_ctrl(byte),
-			1 => ppu_regs.write_mask(byte),
+			0 => ppu_regs.store_ctrl(),
+			1 => ppu_regs.store_mask(),
 			2 => (), // Can't write status. Do nothing or error?
-			6 => ppu_regs.write_addr(byte),
+			6 => ppu_regs.store_addr(),
 			7 => { // PPUDATA
 			    ppu_regs.do_io(cart,
 					   &mut self.vram,
-					   &mut self.paletteTbl,
+					   &mut self.palette_tbl,
 					   IO::Write(byte))?;
 			}
 			_ => todo!()
@@ -232,12 +236,17 @@ impl Nes {
 	    match mapped_addr {
 		None =>
 		    match io {
-			IO::Read => todo!(), // Read open bus
+			IO::Read => (), // Read open bus (leave cpu_buf unchanged)
 			IO::Write(_) => (), // Write to unmapped memory?
 		    }
-		Some(adr) => {
+		Some((tgt, adr)) => {
 		    // Read/write cart
-		    todo!()
+		    let prgorchr = match tgt {
+			MapTarget::Default => PrgOrChr::Prg,
+			MapTarget::Cartridge(x) => x,
+		    };
+		    let data = cart.read(prgorchr, adr)?;
+		    cpu_buf.store(data, Ordering::Relaxed)
 		}
 	    }
 	};
@@ -335,9 +344,11 @@ impl Nes {
 
 	    // Set up CPU
 	    let mut cpu = Cpu::new();
-	    // cpu.pc = 0x400;
+	    // cpu.pc = 0x8000;
+	    cpu.pc = 0xc000;
+	    self.cpu = &cpu as *const Cpu;
 	    let cpu_buf = cpu.read_buf.clone();
-	    let _reset_signal = cpu.reset_signal.clone();
+	    let reset_signal = cpu.reset_signal.clone();
 	    let _irq_signal = cpu.irq_signal.clone();
 	    let _nmi_signal = cpu.nmi_signal.clone();
 	    let mut cpu_process = cpu.run();
@@ -370,6 +381,7 @@ impl Nes {
 	    // let cpu_buf = cpu.read_buf.clone();
 	    // let mut cpu_process = cpu.run();
 
+	    // reset_signal.store(true, Ordering::Relaxed);
 	    loop {
 		// Step PPU
 		match yielded(Pin::new(&mut ppu_process).resume(())) {
