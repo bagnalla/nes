@@ -346,6 +346,7 @@ impl Nes {
 	    let mut cpu = Cpu::new();
 	    // cpu.pc = 0x8000;
 	    cpu.pc = 0xc000;
+	    cpu.sp = 0xFD;
 	    self.cpu = &cpu as *const Cpu;
 	    let cpu_buf = cpu.read_buf.clone();
 	    let reset_signal = cpu.reset_signal.clone();

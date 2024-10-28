@@ -71,12 +71,18 @@ fn load_palette(path: &str) -> Result<[Color; 64], std::io::Error> {
 fn print_log(nes: *const Nes, cart: *const Cart, cyc: usize) {
     unsafe {
 	let pc = (*(*nes).cpu).pc;
+	let a = (*(*nes).cpu).a;
+	let x = (*(*nes).cpu).x;
+	let y = (*(*nes).cpu).y;
+	let p = (*(*nes).cpu).status;
+	let sp = (*(*nes).cpu).sp;
 	let Some((_, mapped_addr)) =
 	    (*cart).mapper.map(CpuOrPpu::Cpu, IO::Read.into(), pc)
 	else { panic!() };
 	let (instr, _) = parse_instr_with_arg(&(*cart).rom.prgrom,
 					      mapped_addr as usize);
-	println!("{:04X} {} {}", pc, instr, cyc)
+	println!("{:04X}: {}, a:{:02X} x:{:02X} y:{:02X} p:{:02X} sp:{:02X} {}",
+		 pc, instr, a, x, y, p, sp, cyc)
     }
 }
 
@@ -125,6 +131,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     while !rl.window_should_close() {
 	let mut cycles = 7*3;
+	// let mut cycles = 0;
 	// Run NES cycles for the frame
 	for _ in 0 .. CYCLES_PER_FRAME {
 	    _ = yielded(Pin::new(&mut nes_process).resume(()))?;
@@ -136,7 +143,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 		print_log(nes_ptr, cart_ptr, cycles / 3);
 		pc = new_pc;
 	    }
-	    if cycles / 3 > 14606 {
+	    if cycles / 3 > 199630 {
 		return Ok(())
 	    }
 	    // println!("{}", cycles / 3);

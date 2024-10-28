@@ -3,7 +3,10 @@
 // BUGS not found by the harte tests:
 // - jmp abs
 // - branch with -128 relative offset
-// - php setting B flag (obelisk guide doesn't mention)
+// - php pushing B flag (obelisk guide doesn't mention) (also klaus
+//   doesn't ensure that the B flag is set in the *pushed* status byte
+//   but not in the actual current status register)
+// - plp should not change the B flag (not found by klaus)
 
 // TODO: consider using threads and channels instead of coroutines? Or
 // async/await with channels?
@@ -90,7 +93,8 @@ impl Cpu {
 	    a: 0,
 	    x: 0,
 	    y: 0,
-	    status: Flags::empty(),
+	    // status: Flags::empty() | Flags::D | Flags::B,
+	    status: Flags::I | Flags::U,
 	    read_buf: Arc::new(AtomicU8::new(0)),
 	    reset_signal: Arc::new(AtomicBool::new(false)),
 	    irq_signal: Arc::new(AtomicBool::new(false)),
@@ -109,7 +113,8 @@ impl Cpu {
 	self.a = 0;
 	self.x = 0;
 	self.y = 0;
-	self.status = Flags::empty();
+	self.status = Flags::U;
+	// Also set I after one read cycle -- see reset_signal handler code
 	// self.read_buf.store(0, Ordering::Relaxed);
     }
 
@@ -118,22 +123,22 @@ impl Cpu {
 	    Instr { opcode: opcode, mode: mode }
 	}
 	static INSTR_TABLE: [Instr; 256] = [
-	    i(Brk, Imp), i(Ora, Izx), i(Xxx, Imp), i(Xxx, Imp), i(Nop, Zp0), i(Ora, Zp0), i(Asl, Zp0), i(Xxx, Imp), i(Php, Imp), i(Ora, Imm), i(Asl, Imp), i(Xxx, Imp), i(Nop, Abs), i(Ora, Abs), i(Asl, Abs), i(Xxx, Imp),
-	    i(Bpl, Rel), i(Ora, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Nop, Zpx), i(Ora, Zpx), i(Asl, Zpx), i(Xxx, Imp), i(Clc, Imp), i(Ora, Aby), i(Nop, Imp), i(Xxx, Imp), i(Nop, Abx), i(Ora, Abx), i(Asl, Abx), i(Xxx, Imp),
+	    i(Brk, Imp), i(Ora, Izx), i(Xxx, Imp), i(Slo, Izx), i(Nop, Zp0), i(Ora, Zp0), i(Asl, Zp0), i(Slo, Zp0), i(Php, Imp), i(Ora, Imm), i(Asl, Imp), i(Xxx, Imp), i(Nop, Abs), i(Ora, Abs), i(Asl, Abs), i(Slo, Abs),
+	    i(Bpl, Rel), i(Ora, Izy), i(Xxx, Imp), i(Slo, Izy), i(Nop, Zpx), i(Ora, Zpx), i(Asl, Zpx), i(Slo, Zpx), i(Clc, Imp), i(Ora, Aby), i(Nop, Imp), i(Slo, Aby), i(Nop, Abx), i(Ora, Abx), i(Asl, Abx), i(Slo, Abx),
 	    i(Jsr, Abs), i(And, Izx), i(Xxx, Imp), i(Xxx, Imp), i(Bit, Zp0), i(And, Zp0), i(Rol, Zp0), i(Xxx, Imp), i(Plp, Imp), i(And, Imm), i(Rol, Imp), i(Xxx, Imp), i(Bit, Abs), i(And, Abs), i(Rol, Abs), i(Xxx, Imp),
 	    i(Bmi, Rel), i(And, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Nop, Zpx), i(And, Zpx), i(Rol, Zpx), i(Xxx, Imp), i(Sec, Imp), i(And, Aby), i(Nop, Imp), i(Xxx, Imp), i(Nop, Abx), i(And, Abx), i(Rol, Abx), i(Xxx, Imp),
 	    i(Rti, Imp), i(Eor, Izx), i(Xxx, Imp), i(Xxx, Imp), i(Nop, Zp0), i(Eor, Zp0), i(Lsr, Zp0), i(Xxx, Imp), i(Pha, Imp), i(Eor, Imm), i(Lsr, Imp), i(Xxx, Imp), i(Jmp, Abs), i(Eor, Abs), i(Lsr, Abs), i(Xxx, Imp),
 	    i(Bvc, Rel), i(Eor, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Nop, Zpx), i(Eor, Zpx), i(Lsr, Zpx), i(Xxx, Imp), i(Cli, Imp), i(Eor, Aby), i(Nop, Imp), i(Xxx, Imp), i(Nop, Abx), i(Eor, Abx), i(Lsr, Abx), i(Xxx, Imp),
 	    i(Rts, Imp), i(Adc, Izx), i(Xxx, Imp), i(Xxx, Imp), i(Nop, Zp0), i(Adc, Zp0), i(Ror, Zp0), i(Xxx, Imp), i(Pla, Imp), i(Adc, Imm), i(Ror, Imp), i(Xxx, Imp), i(Jmp, Ind), i(Adc, Abs), i(Ror, Abs), i(Xxx, Imp),
 	    i(Bvs, Rel), i(Adc, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Nop, Zpx), i(Adc, Zpx), i(Ror, Zpx), i(Xxx, Imp), i(Sei, Imp), i(Adc, Aby), i(Nop, Imp), i(Xxx, Imp), i(Nop, Abx), i(Adc, Abx), i(Ror, Abx), i(Xxx, Imp),
-	    i(Nop, Imm), i(Sta, Izx), i(Xxx, Imp), i(Xxx, Imp), i(Sty, Zp0), i(Sta, Zp0), i(Stx, Zp0), i(Xxx, Imp), i(Dey, Imp), i(Xxx, Imp), i(Txa, Imp), i(Xxx, Imp), i(Sty, Abs), i(Sta, Abs), i(Stx, Abs), i(Xxx, Imp),
-	    i(Bcc, Rel), i(Sta, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Sty, Zpx), i(Sta, Zpx), i(Stx, Zpy), i(Xxx, Imp), i(Tya, Imp), i(Sta, Aby), i(Txs, Imp), i(Xxx, Imp), i(Xxx, Imp), i(Sta, Abx), i(Xxx, Imp), i(Xxx, Imp),
-	    i(Ldy, Imm), i(Lda, Izx), i(Ldx, Imm), i(Xxx, Imp), i(Ldy, Zp0), i(Lda, Zp0), i(Ldx, Zp0), i(Xxx, Imp), i(Tay, Imp), i(Lda, Imm), i(Tax, Imp), i(Xxx, Imp), i(Ldy, Abs), i(Lda, Abs), i(Ldx, Abs), i(Xxx, Imp),
-	    i(Bcs, Rel), i(Lda, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Ldy, Zpx), i(Lda, Zpx), i(Ldx, Zpy), i(Xxx, Imp), i(Clv, Imp), i(Lda, Aby), i(Tsx, Imp), i(Xxx, Imp), i(Ldy, Abx), i(Lda, Abx), i(Ldx, Aby), i(Xxx, Imp),
-	    i(Cpy, Imm), i(Cmp, Izx), i(Xxx, Imp), i(Xxx, Imp), i(Cpy, Zp0), i(Cmp, Zp0), i(Dec, Zp0), i(Xxx, Imp), i(Iny, Imp), i(Cmp, Imm), i(Dex, Imp), i(Xxx, Imp), i(Cpy, Abs), i(Cmp, Abs), i(Dec, Abs), i(Xxx, Imp),
-	    i(Bne, Rel), i(Cmp, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Nop, Zpx), i(Cmp, Zpx), i(Dec, Zpx), i(Xxx, Imp), i(Cld, Imp), i(Cmp, Aby), i(Nop, Imp), i(Xxx, Imp), i(Nop, Abx), i(Cmp, Abx), i(Dec, Abx), i(Xxx, Imp),
-	    i(Cpx, Imm), i(Sbc, Izx), i(Xxx, Imp), i(Xxx, Imp), i(Cpx, Zp0), i(Sbc, Zp0), i(Inc, Zp0), i(Xxx, Imp), i(Inx, Imp), i(Sbc, Imm), i(Nop, Imp), i(Xxx, Imp), i(Cpx, Abs), i(Sbc, Abs), i(Inc, Abs), i(Xxx, Imp),
-	    i(Beq, Rel), i(Sbc, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Nop, Zpx), i(Sbc, Zpx), i(Inc, Zpx), i(Xxx, Imp), i(Sed, Imp), i(Sbc, Aby), i(Nop, Imp), i(Xxx, Imp), i(Nop, Abx), i(Sbc, Abx), i(Inc, Abx), i(Xxx, Imp),
+	    i(Nop, Imm), i(Sta, Izx), i(Nop, Imm), i(Sax, Izx), i(Sty, Zp0), i(Sta, Zp0), i(Stx, Zp0), i(Sax, Zp0), i(Dey, Imp), i(Nop, Imm), i(Txa, Imp), i(Xxx, Imp), i(Sty, Abs), i(Sta, Abs), i(Stx, Abs), i(Sax, Abs),
+	    i(Bcc, Rel), i(Sta, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Sty, Zpx), i(Sta, Zpx), i(Stx, Zpy), i(Sax, Zpy), i(Tya, Imp), i(Sta, Aby), i(Txs, Imp), i(Xxx, Imp), i(Xxx, Imp), i(Sta, Abx), i(Xxx, Imp), i(Xxx, Imp),
+	    i(Ldy, Imm), i(Lda, Izx), i(Ldx, Imm), i(Lax, Izx), i(Ldy, Zp0), i(Lda, Zp0), i(Ldx, Zp0), i(Lax, Zp0), i(Tay, Imp), i(Lda, Imm), i(Tax, Imp), i(Lax, Imm), i(Ldy, Abs), i(Lda, Abs), i(Ldx, Abs), i(Lax, Abs),
+	    i(Bcs, Rel), i(Lda, Izy), i(Xxx, Imp), i(Lax, Izy), i(Ldy, Zpx), i(Lda, Zpx), i(Ldx, Zpy), i(Lax, Zpy), i(Clv, Imp), i(Lda, Aby), i(Tsx, Imp), i(Xxx, Imp), i(Ldy, Abx), i(Lda, Abx), i(Ldx, Aby), i(Lax, Aby),
+	    i(Cpy, Imm), i(Cmp, Izx), i(Nop, Imm), i(Dcp, Izx), i(Cpy, Zp0), i(Cmp, Zp0), i(Dec, Zp0), i(Dcp, Zp0), i(Iny, Imp), i(Cmp, Imm), i(Dex, Imp), i(Xxx, Imp), i(Cpy, Abs), i(Cmp, Abs), i(Dec, Abs), i(Dcp, Abs),
+	    i(Bne, Rel), i(Cmp, Izy), i(Xxx, Imp), i(Dcp, Izy), i(Nop, Zpx), i(Cmp, Zpx), i(Dec, Zpx), i(Dcp, Zpx), i(Cld, Imp), i(Cmp, Aby), i(Nop, Imp), i(Dcp, Aby), i(Nop, Abx), i(Cmp, Abx), i(Dec, Abx), i(Dcp, Abx),
+	    i(Cpx, Imm), i(Sbc, Izx), i(Nop, Imm), i(Isc, Izx), i(Cpx, Zp0), i(Sbc, Zp0), i(Inc, Zp0), i(Isc, Zp0), i(Inx, Imp), i(Sbc, Imm), i(Nop, Imp), i(Sbc, Imm), i(Cpx, Abs), i(Sbc, Abs), i(Inc, Abs), i(Isc, Abs),
+	    i(Beq, Rel), i(Sbc, Izy), i(Xxx, Imp), i(Isc, Izy), i(Nop, Zpx), i(Sbc, Zpx), i(Inc, Zpx), i(Isc, Zpx), i(Sed, Imp), i(Sbc, Aby), i(Nop, Imp), i(Isc, Aby), i(Nop, Abx), i(Sbc, Abx), i(Inc, Abx), i(Isc, Abx),
 	];
 	&INSTR_TABLE[op as usize]
     }
@@ -234,9 +239,10 @@ impl Cpu {
 		    }
 		}
 	    };
-	}	
+	}
 
 	let go = #[coroutine] move || {
+	    let mut delayed_i_flag: Option<bool> = None;
 	    loop {
 		// println!("{}", self.pc);
 		self.update_monitor();
@@ -248,14 +254,15 @@ impl Cpu {
 		    // 	cycle!()
 		    // }
 		    let _ = fetch!(0x00FF);
-		    let _ = fetch!(0x00FF);
+		    // let _ = fetch!(0x00FF);
 		    let _ = fetch!(0x0100);
 		    self.reset();
-		    // let _ = pop!();
-		    // let _ = pop!();
-		    // let _ = pop!();
+		    let _ = pop!();
+		    let _ = pop!();
+		    let _ = pop!();
 		    let pcl = fetch!(0xFFFC) as u16;
-		    self.set_flag(Flags::I, true); // ?
+		    // println!("pcl: {:02X}", pcl);
+		    self.set_flag(Flags::I, true);
 		    let pch = fetch!(0xFFFD) as u16;
 		    self.pc = (pch << 8) | pcl;
 		    self.reset_signal.store(false, Ordering::Relaxed);
@@ -304,6 +311,11 @@ impl Cpu {
 		}
 		let instr_code = next_pc!();
 		let instr = Self::decode(instr_code);
+
+		if let Some(b) = delayed_i_flag {
+		    self.set_flag(Flags::I, b);
+		    delayed_i_flag = None
+		}
 
 		let mut lo_carry = false;
 		let mut rel: i8 = 0;
@@ -408,7 +420,7 @@ impl Cpu {
 			{
 			    let val = fetch!(fetch_addr);
 			    match $mode {
-				AddrMode::Abx | AddrMode::Aby => {
+				AddrMode::Abx | AddrMode::Aby | AddrMode::Izy => {
 				    fetch!(if lo_carry {
 					fetch_addr.wrapping_add(256)
 				    } else {
@@ -713,9 +725,9 @@ impl Cpu {
 
 		    Pha => push!(self.a),
 		    Php => {
-			self.set_flag(Flags::B, true);
-			self.set_flag(Flags::U, true);
-			push!(self.status.bits())
+			// self.set_flag(Flags::B, true);
+			// self.set_flag(Flags::U, true);
+			push!((self.status | Flags::U | Flags::B).bits())
 		    }
 
 		    Pla => {
@@ -724,13 +736,24 @@ impl Cpu {
 			self.set_flag(Flags::Z, self.a == 0);
 			self.set_flag(Flags::N, self.a & 0b10000000 != 0);
 		    }
-		    Plp => {
+		    Plp =>
+		    {
 			let _ = peek!();
-			self.status = Flags::from_bits_retain(pop!())
+			// let old_b = self.get_flag(Flags::B);
+			// self.status = Flags::from_bits_retain(pop!()) | Flags::U;
+			// self.set_flag(Flags::B, old_b)
+			let new_status = Flags::from_bits_retain(pop!());
+			self.set_flag(Flags::U, true);
+			self.set_flag(Flags::C, new_status.contains(Flags::C));
+			self.set_flag(Flags::Z, new_status.contains(Flags::Z));
+			self.set_flag(Flags::D, new_status.contains(Flags::D));
+			self.set_flag(Flags::V, new_status.contains(Flags::V));
+			self.set_flag(Flags::N, new_status.contains(Flags::N));
+			delayed_i_flag = Some(new_status.contains(Flags::I));
 		    }
 
 		    Brk => {
-			// Implied already did dummy read
+			// Implied already did dummy read	
 			self.pc = self.pc.wrapping_add(1);
 			self.set_flag(Flags::B, true);
 			push!(((self.pc & 0xFF00) >> 8) as u8); // Push PCH
@@ -753,7 +776,7 @@ impl Cpu {
 		    }
 		    Rti => {
 			let _ = peek!();
-			self.status = Flags::from_bits_retain(pop!());
+			self.status = Flags::from_bits_retain(pop!()) | Flags::U;
 			let pcl = pop!() as u16;
 			let pch = pop!() as u16;
 			self.pc = (pch << 8) | pcl
@@ -775,9 +798,78 @@ impl Cpu {
 			self.pc = (hi << 8) | lo;
 		    }
 
-		    // Xxx => panic!("Unsupported opcode {:02x}", instr_code)
+		    // Unofficial opcodes
+		    Lax => {
+			self.a = fetch_oops!();
+			self.x = self.a;
+			self.set_flag(Flags::Z, self.a == 0);
+			self.set_flag(Flags::N, self.a & 0b10000000 != 0);
+			// TODO: simulate instability (noise) on immediate addressing mode?
+		    }
+		    Sax => match instr.mode {
+			Abx | Aby | Izy => {
+			    let _ = fetch!(fetch_addr);
+			    write!(corrected_addr, self.a & self.x)
+			}
+			_ => write!(fetch_addr, self.a & self.x),
+		    }
+		    Dcp => {
+			let val = fetch_oops_store!(instr.mode);
+			write!(corrected_addr, val);
+			let (res1, _) = val.overflowing_sub(1);
+			write!(corrected_addr, res1);
+			self.set_flag(Flags::C, self.a >= res1);
+			self.set_flag(Flags::Z, self.a == res1);
+			let (res2, _) = self.a.overflowing_sub(res1);
+			self.set_flag(Flags::N, res2 & 0b10000000 != 0)
+		    }
+		    Isc => {
+			let val = fetch_oops_store!(instr.mode);
+			write!(corrected_addr, val);
+			let (res1, _) = val.overflowing_add(1);
+			// self.set_flag(Flags::Z, res == 0);
+			// self.set_flag(Flags::N, res & 0b10000000 != 0);
+			write!(corrected_addr, res1);
+
+			// let val = fetch_oops!() ^ 0xFF;
+			let signed_val = res1 ^ 0xFF;
+			let res2 =
+			    signed_val as u16 + self.a as u16 + self.get_flag(Flags::C) as u16;
+			let a_sign = self.a & 0b10000000;
+			let val_sign = signed_val & 0b10000000;
+			let res2_sign = res2 as u8 & 0b10000000;
+			let signed_overflow = a_sign == val_sign && a_sign != res2_sign;
+			self.a = res2 as u8;
+			self.set_flag(Flags::C, res2 & 0xFF00 != 0);
+			self.set_flag(Flags::Z, self.a == 0);
+			self.set_flag(Flags::V, signed_overflow);
+			self.set_flag(Flags::N, res2_sign > 0);
+		    }
+		    
+		    Slo => {
+			match instr.mode {
+			    AddrMode::Imp => {
+				let shifted_bit = self.a & 0b10000000;
+				self.a <<= 1;
+				self.set_flag(Flags::C, shifted_bit != 0);
+				self.set_flag(Flags::Z, self.a == 0);
+				self.set_flag(Flags::N, self.a & 0b10000000 != 0);
+			    }
+			    _ => {
+				let val = fetch_oops_store!(instr.mode);
+				write!(corrected_addr, val);
+				let shifted_bit = val & 0b10000000;
+				let res = val << 1;
+				self.set_flag(Flags::C, shifted_bit != 0);
+				write!(corrected_addr, res);
+				self.a |= res;
+				self.set_flag(Flags::Z, self.a == 0);
+				self.set_flag(Flags::N, self.a & 0b10000000 != 0);
+			    }
+			}
+		    }
+
 		    Xxx => return format!("Unsupported opcode {:02x}", instr_code)
-		    // Xxx => (),
 		}
 	    }
 	};
@@ -793,11 +885,18 @@ use AddrMode::*;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Opcode {
+    // Official opcodes
     Adc, And, Asl, Bcc, Bcs, Beq, Bit, Bmi, Bne, Bpl, Brk, Bvc, Bvs,
     Clc, Cld, Cli, Clv, Cmp, Cpx, Cpy, Dec, Dex, Dey, Eor, Inc, Inx,
     Iny, Jmp, Jsr, Lda, Ldx, Ldy, Lsr, Nop, Ora, Pha, Php, Pla, Plp,
     Rol, Ror, Rti, Rts, Sbc, Sec, Sed, Sei, Sta, Stx, Sty, Tax, Tay,
-    Tsx, Txa, Txs, Tya, Xxx
+    Tsx, Txa, Txs, Tya,
+
+    // Unofficial opcodes
+    Lax, Sax, Dcp, Isc, Slo,
+
+    // Placeholder for unsupported opcodes
+    Xxx
 }
 use Opcode::*;
 
@@ -805,6 +904,12 @@ use Opcode::*;
 struct Instr {
     opcode: Opcode,
     mode: AddrMode,
+}
+
+impl fmt::Display for Instr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+	write!(f, "{:?} {:?}", self.opcode, self.mode)
+    }
 }
 
 // fn show_prog(mem: &[u8],
@@ -845,8 +950,8 @@ impl fmt::Display for Arg {
 impl fmt::Display for InstrWithArg {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 	match self.arg {
-	    None => write!(f, "{:?}", self.instr),
-	    Some(x) => write!(f, "{:?} {}", self.instr, x)
+	    None => write!(f, "{}", self.instr),
+	    Some(x) => write!(f, "{} {}", self.instr, x)
 	}
     }
 }
