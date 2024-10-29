@@ -11,6 +11,8 @@
 // TODO: consider using threads and channels instead of coroutines? Or
 // async/await with channels?
 
+// TODO: special case for reading from 0x4015 (apu status register)
+
 // use std::collections::HashMap;
 use std::ops::{Coroutine};
 use std::fmt;
@@ -48,10 +50,11 @@ pub struct Cpu {
     pub x: u8,
     pub y: u8,
     pub status: Flags,
-    pub read_buf: Arc<AtomicU8>,
     pub reset_signal: Arc<AtomicBool>,
     pub irq_signal: Arc<AtomicBool>,
     pub nmi_signal: Arc<AtomicBool>,
+
+    pub io_bus: Arc<AtomicU8>,
 }
 
 impl fmt::Display for Cpu {
@@ -68,7 +71,16 @@ impl fmt::Display for Cpu {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum IO {
     Read,
-    Write(u8),
+    Write,
+}
+
+impl IO {
+    pub fn is_read(&self) -> bool {
+	match self {
+	    IO::Read => true,
+	    IO::Write => false,
+	}
+    }
 }
 
 // Every CPU event contains an address and either reads from that
@@ -95,10 +107,10 @@ impl Cpu {
 	    y: 0,
 	    // status: Flags::empty() | Flags::D | Flags::B,
 	    status: Flags::I | Flags::U,
-	    read_buf: Arc::new(AtomicU8::new(0)),
 	    reset_signal: Arc::new(AtomicBool::new(false)),
 	    irq_signal: Arc::new(AtomicBool::new(false)),
 	    nmi_signal: Arc::new(AtomicBool::new(false)),
+	    io_bus: Arc::new(AtomicU8::new(0)),
 	}
     }
     fn set_flag(&mut self, f: Flags, b: bool) {
@@ -115,7 +127,7 @@ impl Cpu {
 	self.y = 0;
 	self.status = Flags::U;
 	// Also set I after one read cycle -- see reset_signal handler code
-	// self.read_buf.store(0, Ordering::Relaxed);
+	// self.io_bus.store(0, Ordering::Relaxed);
     }
 
     fn decode(op: u8) -> &'static Instr {
@@ -125,12 +137,12 @@ impl Cpu {
 	static INSTR_TABLE: [Instr; 256] = [
 	    i(Brk, Imp), i(Ora, Izx), i(Xxx, Imp), i(Slo, Izx), i(Nop, Zp0), i(Ora, Zp0), i(Asl, Zp0), i(Slo, Zp0), i(Php, Imp), i(Ora, Imm), i(Asl, Imp), i(Xxx, Imp), i(Nop, Abs), i(Ora, Abs), i(Asl, Abs), i(Slo, Abs),
 	    i(Bpl, Rel), i(Ora, Izy), i(Xxx, Imp), i(Slo, Izy), i(Nop, Zpx), i(Ora, Zpx), i(Asl, Zpx), i(Slo, Zpx), i(Clc, Imp), i(Ora, Aby), i(Nop, Imp), i(Slo, Aby), i(Nop, Abx), i(Ora, Abx), i(Asl, Abx), i(Slo, Abx),
-	    i(Jsr, Abs), i(And, Izx), i(Xxx, Imp), i(Xxx, Imp), i(Bit, Zp0), i(And, Zp0), i(Rol, Zp0), i(Xxx, Imp), i(Plp, Imp), i(And, Imm), i(Rol, Imp), i(Xxx, Imp), i(Bit, Abs), i(And, Abs), i(Rol, Abs), i(Xxx, Imp),
-	    i(Bmi, Rel), i(And, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Nop, Zpx), i(And, Zpx), i(Rol, Zpx), i(Xxx, Imp), i(Sec, Imp), i(And, Aby), i(Nop, Imp), i(Xxx, Imp), i(Nop, Abx), i(And, Abx), i(Rol, Abx), i(Xxx, Imp),
-	    i(Rti, Imp), i(Eor, Izx), i(Xxx, Imp), i(Xxx, Imp), i(Nop, Zp0), i(Eor, Zp0), i(Lsr, Zp0), i(Xxx, Imp), i(Pha, Imp), i(Eor, Imm), i(Lsr, Imp), i(Xxx, Imp), i(Jmp, Abs), i(Eor, Abs), i(Lsr, Abs), i(Xxx, Imp),
-	    i(Bvc, Rel), i(Eor, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Nop, Zpx), i(Eor, Zpx), i(Lsr, Zpx), i(Xxx, Imp), i(Cli, Imp), i(Eor, Aby), i(Nop, Imp), i(Xxx, Imp), i(Nop, Abx), i(Eor, Abx), i(Lsr, Abx), i(Xxx, Imp),
-	    i(Rts, Imp), i(Adc, Izx), i(Xxx, Imp), i(Xxx, Imp), i(Nop, Zp0), i(Adc, Zp0), i(Ror, Zp0), i(Xxx, Imp), i(Pla, Imp), i(Adc, Imm), i(Ror, Imp), i(Xxx, Imp), i(Jmp, Ind), i(Adc, Abs), i(Ror, Abs), i(Xxx, Imp),
-	    i(Bvs, Rel), i(Adc, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Nop, Zpx), i(Adc, Zpx), i(Ror, Zpx), i(Xxx, Imp), i(Sei, Imp), i(Adc, Aby), i(Nop, Imp), i(Xxx, Imp), i(Nop, Abx), i(Adc, Abx), i(Ror, Abx), i(Xxx, Imp),
+	    i(Jsr, Abs), i(And, Izx), i(Xxx, Imp), i(Rla, Izx), i(Bit, Zp0), i(And, Zp0), i(Rol, Zp0), i(Rla, Zp0), i(Plp, Imp), i(And, Imm), i(Rol, Imp), i(Xxx, Imp), i(Bit, Abs), i(And, Abs), i(Rol, Abs), i(Rla, Abs),
+	    i(Bmi, Rel), i(And, Izy), i(Xxx, Imp), i(Rla, Izy), i(Nop, Zpx), i(And, Zpx), i(Rol, Zpx), i(Rla, Zpx), i(Sec, Imp), i(And, Aby), i(Nop, Imp), i(Rla, Zpy), i(Nop, Abx), i(And, Abx), i(Rol, Abx), i(Rla, Abx),
+	    i(Rti, Imp), i(Eor, Izx), i(Xxx, Imp), i(Sre, Izx), i(Nop, Zp0), i(Eor, Zp0), i(Lsr, Zp0), i(Sre, Zp0), i(Pha, Imp), i(Eor, Imm), i(Lsr, Imp), i(Xxx, Imp), i(Jmp, Abs), i(Eor, Abs), i(Lsr, Abs), i(Sre, Abs),
+	    i(Bvc, Rel), i(Eor, Izy), i(Xxx, Imp), i(Sre, Izy), i(Nop, Zpx), i(Eor, Zpx), i(Lsr, Zpx), i(Sre, Zpx), i(Cli, Imp), i(Eor, Aby), i(Nop, Imp), i(Sre, Aby), i(Nop, Abx), i(Eor, Abx), i(Lsr, Abx), i(Sre, Abx),
+	    i(Rts, Imp), i(Adc, Izx), i(Xxx, Imp), i(Rra, Izx), i(Nop, Zp0), i(Adc, Zp0), i(Ror, Zp0), i(Rra, Zp0), i(Pla, Imp), i(Adc, Imm), i(Ror, Imp), i(Xxx, Imp), i(Jmp, Ind), i(Adc, Abs), i(Ror, Abs), i(Rra, Abs),
+	    i(Bvs, Rel), i(Adc, Izy), i(Xxx, Imp), i(Rra, Izy), i(Nop, Zpx), i(Adc, Zpx), i(Ror, Zpx), i(Rra, Zpx), i(Sei, Imp), i(Adc, Aby), i(Nop, Imp), i(Rra, Aby), i(Nop, Abx), i(Adc, Abx), i(Ror, Abx), i(Rra, Abx),
 	    i(Nop, Imm), i(Sta, Izx), i(Nop, Imm), i(Sax, Izx), i(Sty, Zp0), i(Sta, Zp0), i(Stx, Zp0), i(Sax, Zp0), i(Dey, Imp), i(Nop, Imm), i(Txa, Imp), i(Xxx, Imp), i(Sty, Abs), i(Sta, Abs), i(Stx, Abs), i(Sax, Abs),
 	    i(Bcc, Rel), i(Sta, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Sty, Zpx), i(Sta, Zpx), i(Stx, Zpy), i(Sax, Zpy), i(Tya, Imp), i(Sta, Aby), i(Txs, Imp), i(Xxx, Imp), i(Xxx, Imp), i(Sta, Abx), i(Xxx, Imp), i(Xxx, Imp),
 	    i(Ldy, Imm), i(Lda, Izx), i(Ldx, Imm), i(Lax, Izx), i(Ldy, Zp0), i(Lda, Zp0), i(Ldx, Zp0), i(Lax, Zp0), i(Tay, Imp), i(Lda, Imm), i(Tax, Imp), i(Lax, Imm), i(Ldy, Abs), i(Lda, Abs), i(Ldx, Abs), i(Lax, Abs),
@@ -159,7 +171,7 @@ impl Cpu {
 	    ( $adr:expr ) => {
 		{
 		    yield ($adr, IO::Read);
-		    self.read_buf.load(Ordering::Relaxed)
+		    self.io_bus.load(Ordering::Relaxed)
 		}
 	    };
 	}
@@ -167,7 +179,8 @@ impl Cpu {
 	macro_rules! write {
 	    ( $adr:expr, $val:expr ) => {
 		{
-		    yield ($adr, IO::Write($val))
+		    self.io_bus.store($val, Ordering::Relaxed);
+		    yield ($adr, IO::Write)
 		}
 	    };
 	}
@@ -182,7 +195,7 @@ impl Cpu {
 		{
 		    yield (self.pc, IO::Read);
 		    self.pc = self.pc.wrapping_add(1);
-		    self.read_buf.load(Ordering::Relaxed)
+		    self.io_bus.load(Ordering::Relaxed)
 		}
 	    };
 	}
@@ -845,7 +858,7 @@ impl Cpu {
 			self.set_flag(Flags::V, signed_overflow);
 			self.set_flag(Flags::N, res2_sign > 0);
 		    }
-		    
+
 		    Slo => {
 			match instr.mode {
 			    AddrMode::Imp => {
@@ -867,6 +880,91 @@ impl Cpu {
 				self.set_flag(Flags::N, self.a & 0b10000000 != 0);
 			    }
 			}
+		    }
+
+		    Rla => {
+			match instr.mode {
+			    AddrMode::Imp => {
+				let shifted_bit = self.a & 0b10000000;
+				self.a = (self.a << 1) | self.get_flag(Flags::C) as u8;
+				self.set_flag(Flags::C, shifted_bit != 0);
+				self.set_flag(Flags::Z, self.a == 0);
+				self.set_flag(Flags::N, self.a & 0b10000000 != 0);
+			    }
+			    _ => {
+				let val = fetch_oops_store!(instr.mode);
+				write!(corrected_addr, val);
+				let shifted_bit = val & 0b10000000;
+				let res = (val << 1) | self.get_flag(Flags::C) as u8;
+				self.set_flag(Flags::C, shifted_bit != 0);
+				write!(corrected_addr, res);
+				self.a &= res;
+				self.set_flag(Flags::Z, self.a == 0);
+				self.set_flag(Flags::N, self.a & 0x80 != 0);
+			    }
+			}
+		    }
+
+		    Sre => {
+			match instr.mode {
+			    AddrMode::Imp => {
+				let shifted_bit = self.a & 1;
+				self.a >>= 1;
+				self.set_flag(Flags::C, shifted_bit != 0);
+				self.a ^= self.a;
+				self.set_flag(Flags::Z, self.a == 0);
+				self.set_flag(Flags::N, false);
+			    }
+			    _ => {
+				let val = fetch_oops_store!(instr.mode);
+				write!(corrected_addr, val);
+				let shifted_bit = val & 1;
+				let res = val >> 1;
+				self.set_flag(Flags::C, shifted_bit != 0);
+				write!(corrected_addr, res);
+				self.a ^= val;
+				self.set_flag(Flags::Z, self.a == 0);
+				self.set_flag(Flags::N, self.a & 0b10000000 != 0);
+			    }
+			}
+		    }
+
+		    Rra => {
+			// match instr.mode {
+			//     AddrMode::Imp => {
+			// 	let shifted_bit = self.a & 1;
+			// 	self.a =
+			// 	    (self.get_flag(Flags::C) as u8) << 7 | self.a >> 1;
+			// 	self.set_flag(Flags::C, shifted_bit != 0);
+			// 	self.set_flag(Flags::Z, self.a == 0);
+			// 	self.set_flag(Flags::N, self.a & 0b10000000 != 0);
+			//     }
+			//     _ => {
+			// 	let val = fetch_oops_store!(instr.mode);
+			// 	write!(corrected_addr, val);
+			// 	let shifted_bit = val & 1;
+			// 	let res =
+			// 	    (self.get_flag(Flags::C) as u8) << 7 | val >> 1;
+			// 	self.set_flag(Flags::C, shifted_bit != 0);
+			// 	self.set_flag(Flags::Z, res == 0);
+			// 	self.set_flag(Flags::N, res & 0b10000000 != 0);
+			// 	write!(corrected_addr, res);
+			//     }
+			// }
+
+			// let val = fetch_oops!();
+			// let res =
+			//     val as u16 + self.a as u16 + self.get_flag(Flags::C) as u16;
+			// let a_sign = self.a & 0b10000000;
+			// let val_sign = val & 0b10000000;
+			// let res_sign = res as u8 & 0b10000000;
+			// let signed_overflow = a_sign == val_sign && a_sign != res_sign;
+			// self.a = res as u8;
+			// self.set_flag(Flags::C, res & 0xFF00 != 0);
+			// self.set_flag(Flags::Z, self.a == 0);
+			// self.set_flag(Flags::V, signed_overflow);
+			// self.set_flag(Flags::N, res_sign > 0);
+			todo!()
 		    }
 
 		    Xxx => return format!("Unsupported opcode {:02x}", instr_code)
@@ -893,7 +991,7 @@ enum Opcode {
     Tsx, Txa, Txs, Tya,
 
     // Unofficial opcodes
-    Lax, Sax, Dcp, Isc, Slo,
+    Lax, Sax, Dcp, Isc, Slo, Rla, Sre, Rra,
 
     // Placeholder for unsupported opcodes
     Xxx
@@ -1025,7 +1123,7 @@ mod tests {
 	cpu.x = test.initial.x;
 	cpu.y = test.initial.y;
 	cpu.status = Flags::from_bits_retain(test.initial.p);
-	let buf = cpu.read_buf.clone();
+	let cpu_bus = cpu.io_bus.clone();
 	let mut cpu_process = cpu.run();
 
 	let mut mem = vec![0; 2_usize.pow(16)];
@@ -1049,14 +1147,14 @@ mod tests {
 				     expected {:x}, got {:x}",
 				    event, addr, test_val, mem[addr as usize]))
 			    }
-			    buf.store(mem[addr as usize], Ordering::Relaxed)
+			    cpu_bus.store(mem[addr as usize], Ordering::Relaxed)
 			}
-			IO::Write(byte) => {
+			IO::Write => {
 			    if test_rw != "write" || addr != test_addr {
 				return Err(format!("expected '{} {:04x}', got {:?} {}",
 						   test_rw, test_addr, event, addr))
 			    }
-			    mem[addr as usize] = byte
+			    mem[addr as usize] = cpu_bus.load(Ordering::Relaxed)
 			}
 		    }
 		}
@@ -1102,7 +1200,7 @@ mod tests {
 
 	let mut cpu = Cpu::new();
 	cpu.pc = PROGRAM_START;
-	let buf = cpu.read_buf.clone();
+	let cpu_bus = cpu.io_bus.clone();
 	let mut cpu_process = cpu.run();
 
 	// let mut trace: Vec<(u16, InstrWithArg)> = Vec::new();
@@ -1143,10 +1241,10 @@ mod tests {
 		CoroutineState::Yielded((addr, event)) => {
 		    match event {
 			IO::Read => {
-			    buf.store(mem[addr as usize], Ordering::Relaxed)
+			    cpu_bus.store(mem[addr as usize], Ordering::Relaxed)
 			}
-			IO::Write(byte) => {
-			    mem[addr as usize] = byte
+			IO::Write => {
+			    mem[addr as usize] = cpu_bus.load(Ordering::Relaxed)
 			}
 		    }
 		}
@@ -1181,7 +1279,7 @@ mod tests {
 	let mut cpu = Cpu::new();
 	cpu.pc = PROGRAM_START;
 	PC_MONITOR.store(PROGRAM_START, Ordering::Relaxed);
-	let buf = cpu.read_buf.clone();
+	let cpu_bus = cpu.io_bus.clone();
 	let irq_signal = cpu.irq_signal.clone();
 	let nmi_signal = cpu.nmi_signal.clone();
 	let mut cpu_process = cpu.run();
@@ -1226,10 +1324,10 @@ mod tests {
 		CoroutineState::Yielded((addr, event)) => {
 		    match event {
 			IO::Read => {
-			    buf.store(mem[addr as usize], Ordering::Relaxed)
+			    cpu_bus.store(mem[addr as usize], Ordering::Relaxed)
 			}
-			IO::Write(byte) => {
-			    mem[addr as usize] = byte
+			IO::Write => {
+			    mem[addr as usize] = cpu_bus.load(Ordering::Relaxed)
 			}
 		    }
 		}

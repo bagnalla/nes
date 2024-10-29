@@ -285,7 +285,7 @@ impl PpuRegs {
 			self.read_buf.store(self.addr.load(Ordering::Relaxed) as u8,
 					    Ordering::Relaxed)
 		    }
-		    IO::Write(_) => () // Write to unmapped memory??
+		    IO::Write => () // Write to unmapped memory??
 		}
 	    }
 	    Some((MapTarget::Default, mapped_addr)) => {
@@ -296,7 +296,7 @@ impl PpuRegs {
 			    let byte = cart.rom.chrrom[mapped_addr as usize];
 			    self.read_buf.store(byte, Ordering::Relaxed)
 			}
-			IO::Write(_) => {
+			IO::Write => {
 			    // Is it possible to check if CHR is RAM?
 			    // To throw error here if not RAM...
 			    let byte = self.read_bus();
@@ -313,7 +313,7 @@ impl PpuRegs {
 			    let byte = vram[wrapped_addr as usize];
 			    self.read_buf.store(byte, Ordering::Relaxed)
 			}
-			IO::Write(_) => {
+			IO::Write => {
 			    let byte = self.read_bus();
 			    vram[wrapped_addr as usize] = byte;
 			    self.data.store(byte, Ordering::Relaxed)
@@ -329,7 +329,7 @@ impl PpuRegs {
 			    let byte = palette_tbl[palette_addr as usize];
 			    self.read_buf.store(byte, Ordering::Relaxed)
 			}
-			IO::Write(_) => {
+			IO::Write => {
 			    let byte = self.read_bus();
 			    palette_tbl[palette_addr as usize] = byte;
 			    self.data.store(byte, Ordering::Relaxed)
@@ -346,7 +346,7 @@ impl PpuRegs {
 			let byte = cart.read(tgt, mapped_addr)?;
 			self.read_buf.store(byte, Ordering::Relaxed)
 		    }
-		    IO::Write(_) => {
+		    IO::Write => {
 			let byte = self.read_bus();
 			cart.write(tgt, mapped_addr, byte)?;
 			self.data.store(byte, Ordering::Relaxed)

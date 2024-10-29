@@ -90,10 +90,10 @@ impl Nes {
     // 	// $3F00-$3FFF ..."
     // 	if addr >= 0x3F00 {
     // 	    let palette_addr = self.paletteTblAddr(wrapped_addr);
-    // 	    cpu_buf.store(self.paletteTbl[palette_addr as usize],
+    // 	    cpu_bus.store(self.paletteTbl[palette_addr as usize],
     // 			  Ordering::Relaxed)
     // 	} else {
-    // 	    cpu_buf.store(data, Ordering::Relaxed)
+    // 	    cpu_bus.store(data, Ordering::Relaxed)
     // 	}
 	
     // 	match mapped_addr {
@@ -165,7 +165,7 @@ impl Nes {
 
     fn handle_cpu_event(&mut self,
 			cart: &mut Cart,
-			cpu_buf: &Arc<AtomicU8>,
+			cpu_bus: &Arc<AtomicU8>,
 			ppu_regs: &PpuRegs,
 			(addr, io) : CpuEvent)
 			-> Result<(), String> {
@@ -177,11 +177,12 @@ impl Nes {
 	    match io {
 		IO::Read => {
 		    // println!("{:04x}", fixed_addr);
-		    cpu_buf.store(self.ram[wrapped_addr as usize],
+		    cpu_bus.store(self.ram[wrapped_addr as usize],
 			      Ordering::Relaxed)
 		}
-		IO::Write(byte) => {
-		    self.ram[wrapped_addr as usize] = byte
+		IO::Write => {
+		    self.ram[wrapped_addr as usize] =
+			cpu_bus.load(Ordering::Relaxed)
 		}
 	    }
 	}
@@ -208,12 +209,12 @@ impl Nes {
 			}
 			_ => todo!("{}", wrapped_addr)
 		    }
-		    cpu_buf.store(ppu_regs.read_bus(), Ordering::Relaxed)
+		    cpu_bus.store(ppu_regs.read_bus(), Ordering::Relaxed)
 		    // TODO: "Read conflict with DPCM samples" on PPU
 		    // registers page.
 		}
-		IO::Write(byte) => {
-		    ppu_regs.write_bus(byte);
+		IO::Write => {
+		    ppu_regs.write_bus(cpu_bus.load(Ordering::Relaxed));
 		    match wrapped_addr {
 			0 => ppu_regs.store_ctrl(),
 			1 => ppu_regs.store_mask(),
@@ -223,7 +224,7 @@ impl Nes {
 			    ppu_regs.do_io(cart,
 					   &mut self.vram,
 					   &mut self.palette_tbl,
-					   IO::Write(byte))?;
+					   IO::Write)?;
 			}
 			_ => todo!()
 		    }
@@ -236,8 +237,8 @@ impl Nes {
 	    match mapped_addr {
 		None =>
 		    match io {
-			IO::Read => (), // Read open bus (leave cpu_buf unchanged)
-			IO::Write(_) => (), // Write to unmapped memory?
+			IO::Read => (), // Read open bus (leave cpu_bus unchanged)
+			IO::Write => (), // Write to unmapped memory?
 		    }
 		Some((tgt, adr)) => {
 		    // Read/write cart
@@ -246,7 +247,7 @@ impl Nes {
 			MapTarget::Cartridge(x) => x,
 		    };
 		    let data = cart.read(prgorchr, adr)?;
-		    cpu_buf.store(data, Ordering::Relaxed)
+		    cpu_bus.store(data, Ordering::Relaxed)
 		}
 	    }
 	};
@@ -348,7 +349,7 @@ impl Nes {
 	    cpu.pc = 0xc000;
 	    cpu.sp = 0xFD;
 	    self.cpu = &cpu as *const Cpu;
-	    let cpu_buf = cpu.read_buf.clone();
+	    let cpu_bus = cpu.io_bus.clone();
 	    let reset_signal = cpu.reset_signal.clone();
 	    let _irq_signal = cpu.irq_signal.clone();
 	    let _nmi_signal = cpu.nmi_signal.clone();
@@ -379,7 +380,7 @@ impl Nes {
 	    // let mut cpu = Cpu::new();
 	    // self.cpu = &mut cpu as *mut Cpu;
 	    // cpu.pc = PROGRAM_START;
-	    // let cpu_buf = cpu.read_buf.clone();
+	    // let cpu_bus = cpu.read_buf.clone();
 	    // let mut cpu_process = cpu.run();
 
 	    // reset_signal.store(true, Ordering::Relaxed);
@@ -401,7 +402,7 @@ impl Nes {
 		if cycle_counter % 3 == 0 {
 		    let cpu_event = yielded(Pin::new(&mut cpu_process).resume(()));
 		    match cpu_event.and_then(|event| {
-			self.handle_cpu_event(&mut cart, &cpu_buf, &ppu_regs, event)
+			self.handle_cpu_event(&mut cart, &cpu_bus, &ppu_regs, event)
 		    }) {
 			Ok(()) => (),
 			Err(msg) => return msg

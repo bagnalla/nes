@@ -100,26 +100,26 @@ impl From<Vec<u8>> for INES {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
-pub enum ReadOrWrite { Read, Write }
+// #[derive(Clone, Copy, Debug)]
+// pub enum ReadOrWrite { Read, Write }
 
-impl ReadOrWrite {
-    fn is_read(&self) -> bool {
-	match self {
-	    ReadOrWrite::Read => true,
-	    ReadOrWrite::Write => false,
-	}
-    }
-}
+// impl ReadOrWrite {
+//     fn is_read(&self) -> bool {
+// 	match self {
+// 	    ReadOrWrite::Read => true,
+// 	    ReadOrWrite::Write => false,
+// 	}
+//     }
+// }
 
-impl From<IO> for ReadOrWrite {
-    fn from(event_type: IO) -> ReadOrWrite {
-	match event_type {
-	    IO::Read => ReadOrWrite::Read,
-	    IO::Write(_) => ReadOrWrite::Write,
-	}
-    }
-}
+// impl From<IO> for ReadOrWrite {
+//     fn from(event_type: IO) -> ReadOrWrite {
+// 	match event_type {
+// 	    IO::Read => ReadOrWrite::Read,
+// 	    IO::Write => ReadOrWrite::Write,
+// 	}
+//     }
+// }
 
 // impl From<PpuEventType> for ReadOrWrite {
 //     fn from(event_type: PpuEventType) -> ReadOrWrite {
@@ -140,9 +140,9 @@ pub enum PrgOrChr { Prg, Chr }
 pub enum MapTarget { Default, Cartridge(PrgOrChr) }
 
 pub trait Mapper where {
-    fn try_map(&self, cp: CpuOrPpu, rw: ReadOrWrite, addr: u16)
+    fn try_map(&self, cp: CpuOrPpu, rw: IO, addr: u16)
 	       -> Option<(MapTarget, u16)>;
-    fn map(&self, cp: CpuOrPpu, rw: ReadOrWrite, addr: u16)
+    fn map(&self, cp: CpuOrPpu, rw: IO, addr: u16)
 	   -> Option<(MapTarget, u16)> {
 	if cp == CpuOrPpu::Cpu && addr == 0x4015 {
 	    return Some((MapTarget::Default, addr))
@@ -181,7 +181,7 @@ fn assert(b : bool) -> Option<()> {
 }
 
 impl Mapper for Mapper000 {
-    fn try_map(&self, cp: CpuOrPpu, rw: ReadOrWrite, addr: u16)
+    fn try_map(&self, cp: CpuOrPpu, rw: IO, addr: u16)
 	       -> Option<(MapTarget, u16)> {
 	match cp {
 	    CpuOrPpu::Cpu => {
