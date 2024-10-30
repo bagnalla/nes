@@ -1,5 +1,6 @@
 #![feature(coroutines, coroutine_trait, stmt_expr_attributes)]
 
+use std::fmt;
 use std::fs;
 use std::ops::{Coroutine};
 use std::pin::Pin;
@@ -13,7 +14,81 @@ use nes::cart::{Cart, CpuOrPpu, INES};
 use nes::{Nes, yielded};
 // use nes::ppu::{Ppu};
 
+use once_cell::sync::Lazy;
 use raylib::prelude::*;
+use regex::Regex;
+
+#[derive(PartialEq)]
+struct LogState {
+    pc: u16,
+    // opcode: u8,
+    // args: Vec<u8>,
+    a: u8,
+    x: u8,
+    y: u8,
+    p: u8,
+    sp: u8,
+    cyc: usize,
+}
+
+impl fmt::Display for LogState {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+	write!(f, "pc:{:04x} ", self.pc)?;
+	write!(f, "a:{:02x} ", self.a)?;
+	write!(f, "x:{:02x} ", self.x)?;
+	write!(f, "y:{:02x} ", self.y)?;
+	write!(f, "p:{:02x} ", self.p);
+	write!(f, "sp:{:02x} ", self.sp)?;
+	write!(f, "cyc:{}", self.cyc)
+    }
+}
+
+impl From<(&Cpu, usize)> for LogState {
+    fn from((cpu, cycle): (&Cpu, usize)) -> Self {
+	LogState {
+	    pc: cpu.pc,
+	    a: cpu.a,
+	    x: cpu.x,
+	    y: cpu.y,
+	    p: cpu.status.bits(),
+	    sp: cpu.sp,
+	    cyc: cycle,
+	}
+    }
+}
+
+impl std::str::FromStr for LogState {
+    type Err = Box<dyn std::error::Error>;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+	static RE: Lazy<Regex> = Lazy::new(|| Regex::new(
+	    "(....) .*A:(..) X:(..) Y:(..) P:(..) SP:(..).*CYC:(.+)").unwrap());
+	let (_, [pc, a, x, y, p, sp, cyc]) = RE.captures_iter(s).next()
+	    .ok_or("failed to parse log line".to_owned())?.extract();
+	// println!("{} {} {} {} {} {} {}", pc, a, x, y, p, sp, cyc);
+	Ok(LogState {
+	    pc: u16::from_str_radix(pc, 16)?,
+	    a: u8::from_str_radix(a, 16)?,
+	    x: u8::from_str_radix(x, 16)?,
+	    y: u8::from_str_radix(y, 16)?,
+	    p: u8::from_str_radix(p, 16)?,
+	    sp: u8::from_str_radix(sp, 16)?,
+	    cyc: cyc.parse::<usize>()?,
+	})
+    }
+}
+
+// From https://doc.rust-lang.org/rust-by-example/std_misc/file/read_lines.html
+fn read_lines(filename: &str) -> Vec<String> {
+    fs::read_to_string(filename) 
+        .unwrap()  // panic on possible file-reading errors
+        .lines()  // split the string into an iterator of string slices
+        .map(String::from)  // make each slice into a string
+        .collect()  // gather them together into a vector
+}
+
+fn parse_log(path: &str) -> Result<Vec<LogState>, Box<dyn std::error::Error>> {
+    read_lines(path).iter().map(|line| line.parse()).collect()
+}
 
 fn chrrom_texture(rl: &mut RaylibHandle,
 		  thread: &RaylibThread,
@@ -129,6 +204,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut pc = PC_MONITOR.load(Ordering::Relaxed);
 
+    let expected_log = parse_log("/home/alex/source/nes-test-roms/other/nestest.log")?;
+    let mut i = 0;
+
     while !rl.window_should_close() {
 	let mut cycles = 7*3;
 	// let mut cycles = 0;
@@ -136,8 +214,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	for _ in 0 .. CYCLES_PER_FRAME {
 	    _ = yielded(Pin::new(&mut nes_process).resume(()))?;
 	    let new_pc = PC_MONITOR.load(Ordering::Relaxed);
+
 	    cycles += 1;
 	    if new_pc != pc {
+
+		// println!("expected: {:04x}", expected_log[i].a);
+		// unsafe { println!("actual: {:04x}", (*(*nes_ptr).cpu).a); }
+
+		// unsafe { assert_eq!(expected_log[i], (&*(*nes_ptr).cpu, cycles / 3).into()) }
+		unsafe {
+		    let state = (&*(*nes_ptr).cpu, cycles / 3).into();
+		    if expected_log[i] != state {
+			return Err(format!("expected: {}, actual: {}", expected_log[i], state).into());
+		    }
+		}
+		
+		i += 1;
+		// if i > 100 {
+		//     std::process::exit(0)
+		// }
+		
 		// println!("{:04x}", new_pc);
 		// unsafe { print_log(cpu_ptr, &(*cart_ptr).rom.prgrom, cycles) }
 		print_log(nes_ptr, cart_ptr, cycles / 3);
@@ -174,4 +270,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::ops::{CoroutineState};
+    use std::pin::Pin;
+
+    // TODO: nestest log comparison
 }

@@ -138,7 +138,7 @@ impl Cpu {
 	    i(Brk, Imp), i(Ora, Izx), i(Xxx, Imp), i(Slo, Izx), i(Nop, Zp0), i(Ora, Zp0), i(Asl, Zp0), i(Slo, Zp0), i(Php, Imp), i(Ora, Imm), i(Asl, Imp), i(Xxx, Imp), i(Nop, Abs), i(Ora, Abs), i(Asl, Abs), i(Slo, Abs),
 	    i(Bpl, Rel), i(Ora, Izy), i(Xxx, Imp), i(Slo, Izy), i(Nop, Zpx), i(Ora, Zpx), i(Asl, Zpx), i(Slo, Zpx), i(Clc, Imp), i(Ora, Aby), i(Nop, Imp), i(Slo, Aby), i(Nop, Abx), i(Ora, Abx), i(Asl, Abx), i(Slo, Abx),
 	    i(Jsr, Abs), i(And, Izx), i(Xxx, Imp), i(Rla, Izx), i(Bit, Zp0), i(And, Zp0), i(Rol, Zp0), i(Rla, Zp0), i(Plp, Imp), i(And, Imm), i(Rol, Imp), i(Xxx, Imp), i(Bit, Abs), i(And, Abs), i(Rol, Abs), i(Rla, Abs),
-	    i(Bmi, Rel), i(And, Izy), i(Xxx, Imp), i(Rla, Izy), i(Nop, Zpx), i(And, Zpx), i(Rol, Zpx), i(Rla, Zpx), i(Sec, Imp), i(And, Aby), i(Nop, Imp), i(Rla, Zpy), i(Nop, Abx), i(And, Abx), i(Rol, Abx), i(Rla, Abx),
+	    i(Bmi, Rel), i(And, Izy), i(Xxx, Imp), i(Rla, Izy), i(Nop, Zpx), i(And, Zpx), i(Rol, Zpx), i(Rla, Zpx), i(Sec, Imp), i(And, Aby), i(Nop, Imp), i(Rla, Aby), i(Nop, Abx), i(And, Abx), i(Rol, Abx), i(Rla, Abx),
 	    i(Rti, Imp), i(Eor, Izx), i(Xxx, Imp), i(Sre, Izx), i(Nop, Zp0), i(Eor, Zp0), i(Lsr, Zp0), i(Sre, Zp0), i(Pha, Imp), i(Eor, Imm), i(Lsr, Imp), i(Xxx, Imp), i(Jmp, Abs), i(Eor, Abs), i(Lsr, Abs), i(Sre, Abs),
 	    i(Bvc, Rel), i(Eor, Izy), i(Xxx, Imp), i(Sre, Izy), i(Nop, Zpx), i(Eor, Zpx), i(Lsr, Zpx), i(Sre, Zpx), i(Cli, Imp), i(Eor, Aby), i(Nop, Imp), i(Sre, Aby), i(Nop, Abx), i(Eor, Abx), i(Lsr, Abx), i(Sre, Abx),
 	    i(Rts, Imp), i(Adc, Izx), i(Xxx, Imp), i(Rra, Izx), i(Nop, Zp0), i(Adc, Zp0), i(Ror, Zp0), i(Rra, Zp0), i(Pla, Imp), i(Adc, Imm), i(Ror, Imp), i(Xxx, Imp), i(Jmp, Ind), i(Adc, Abs), i(Ror, Abs), i(Rra, Abs),
@@ -922,7 +922,7 @@ impl Cpu {
 				let res = val >> 1;
 				self.set_flag(Flags::C, shifted_bit != 0);
 				write!(corrected_addr, res);
-				self.a ^= val;
+				self.a ^= res;
 				self.set_flag(Flags::Z, self.a == 0);
 				self.set_flag(Flags::N, self.a & 0b10000000 != 0);
 			    }
@@ -930,41 +930,36 @@ impl Cpu {
 		    }
 
 		    Rra => {
-			// match instr.mode {
-			//     AddrMode::Imp => {
-			// 	let shifted_bit = self.a & 1;
-			// 	self.a =
-			// 	    (self.get_flag(Flags::C) as u8) << 7 | self.a >> 1;
-			// 	self.set_flag(Flags::C, shifted_bit != 0);
-			// 	self.set_flag(Flags::Z, self.a == 0);
-			// 	self.set_flag(Flags::N, self.a & 0b10000000 != 0);
-			//     }
-			//     _ => {
-			// 	let val = fetch_oops_store!(instr.mode);
-			// 	write!(corrected_addr, val);
-			// 	let shifted_bit = val & 1;
-			// 	let res =
-			// 	    (self.get_flag(Flags::C) as u8) << 7 | val >> 1;
-			// 	self.set_flag(Flags::C, shifted_bit != 0);
-			// 	self.set_flag(Flags::Z, res == 0);
-			// 	self.set_flag(Flags::N, res & 0b10000000 != 0);
-			// 	write!(corrected_addr, res);
-			//     }
-			// }
-
-			// let val = fetch_oops!();
-			// let res =
-			//     val as u16 + self.a as u16 + self.get_flag(Flags::C) as u16;
-			// let a_sign = self.a & 0b10000000;
-			// let val_sign = val & 0b10000000;
-			// let res_sign = res as u8 & 0b10000000;
-			// let signed_overflow = a_sign == val_sign && a_sign != res_sign;
-			// self.a = res as u8;
-			// self.set_flag(Flags::C, res & 0xFF00 != 0);
-			// self.set_flag(Flags::Z, self.a == 0);
-			// self.set_flag(Flags::V, signed_overflow);
-			// self.set_flag(Flags::N, res_sign > 0);
-			todo!()
+			let val = match instr.mode {
+			    AddrMode::Imp => {
+				let shifted_bit = self.a & 1;
+				self.a =
+				    (self.get_flag(Flags::C) as u8) << 7 | self.a >> 1;
+				self.set_flag(Flags::C, shifted_bit != 0);
+				self.a
+			    }
+			    _ => {
+				let val = fetch_oops_store!(instr.mode);
+				write!(corrected_addr, val);
+				let shifted_bit = val & 1;
+				let res =
+				    (self.get_flag(Flags::C) as u8) << 7 | val >> 1;
+				self.set_flag(Flags::C, shifted_bit != 0);
+				write!(corrected_addr, res);
+				res
+			    }
+			};
+			let res =
+			    val as u16 + self.a as u16 + self.get_flag(Flags::C) as u16;
+			let a_sign = self.a & 0b10000000;
+			let val_sign = val & 0b10000000;
+			let res_sign = res as u8 & 0b10000000;
+			let signed_overflow = a_sign == val_sign && a_sign != res_sign;
+			self.a = res as u8;
+			self.set_flag(Flags::C, res & 0xFF00 != 0);
+			self.set_flag(Flags::Z, self.a == 0);
+			self.set_flag(Flags::V, signed_overflow);
+			self.set_flag(Flags::N, res_sign > 0)
 		    }
 
 		    Xxx => return format!("Unsupported opcode {:02x}", instr_code)
