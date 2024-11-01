@@ -85,7 +85,7 @@ impl IO {
 
 // Every CPU event contains an address and either reads from that
 // address or writes a byte to it.
-pub type CpuEvent = (u16, IO);
+pub type CpuEvent = (u16, Option<IO>);
 
 // impl fmt::Display for CpuEvent {
 //     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -170,8 +170,13 @@ impl Cpu {
 	macro_rules! fetch {
 	    ( $adr:expr ) => {
 		{
-		    yield ($adr, IO::Read);
-		    self.io_bus.load(Ordering::Relaxed)
+		    if $adr == 0x4015 {
+			yield ($adr, None);
+			todo!()
+		    } else {
+			yield ($adr, Some(IO::Read));
+			self.io_bus.load(Ordering::Relaxed)
+		    }
 		}
 	    };
 	}
@@ -179,21 +184,21 @@ impl Cpu {
 	macro_rules! write {
 	    ( $adr:expr, $val:expr ) => {
 		{
-		    self.io_bus.store($val, Ordering::Relaxed);
-		    yield ($adr, IO::Write)
+		    if $adr == 0x4015 as u16 {
+			yield ($adr, None);
+			todo!()
+		    } else {
+			self.io_bus.store($val, Ordering::Relaxed);
+			yield ($adr, Some(IO::Write))
+		    }
 		}
 	    };
 	}
 
 	macro_rules! next_pc {
 	    ( ) => {
-		// {
-		//     let val = fetch!(self.pc);
-		//     self.pc = self.pc.wrapping_add(1);
-		//     val
-		// }
 		{
-		    yield (self.pc, IO::Read);
+		    yield (self.pc, Some(IO::Read));
 		    self.pc = self.pc.wrapping_add(1);
 		    self.io_bus.load(Ordering::Relaxed)
 		}
@@ -345,12 +350,12 @@ impl Cpu {
 		    AddrMode::Zp0 => next_pc!().into(),
 		    AddrMode::Zpx => {
 			let adr = next_pc!();
-			let _ = fetch!(adr.into());
+			let _ = fetch!(adr as u16);
 			(adr.wrapping_add(self.x)).into()
 		    }
 		    AddrMode::Zpy => {
 			let adr = next_pc!();
-			let _ = fetch!(adr.into());
+			let _ = fetch!(adr as u16);
 			(adr.wrapping_add(self.y)).into()
 		    }
 		    AddrMode::Rel => {
@@ -389,15 +394,15 @@ impl Cpu {
 		    }
 		    AddrMode::Izx => {
 			let t = next_pc!();
-			let _ = fetch!(t.into());
-			let lo = fetch!(t.wrapping_add(self.x).into());
-			let hi = fetch!(t.wrapping_add(self.x).wrapping_add(1).into());
+			let _ = fetch!(t as u16);
+			let lo = fetch!(t.wrapping_add(self.x) as u16);
+			let hi = fetch!(t.wrapping_add(self.x).wrapping_add(1) as u16);
 			((hi as u16) << 8) | lo as u16
 		    }
 		    AddrMode::Izy => {
 			let t = next_pc!();
 			let lo = fetch!(t as u16);
-			let hi = fetch!(t.wrapping_add(1).into());
+			let hi = fetch!(t.wrapping_add(1) as u16);
 			let (lo2, carry) = lo.overflowing_add(self.y);
 			lo_carry = carry;
 			((hi as u16) << 8) | lo2 as u16
@@ -1131,7 +1136,7 @@ mod tests {
 		CoroutineState::Yielded((addr, event)) => {
 		    // println!("{}", event);
 		    match event {
-			IO::Read => {
+			Some(IO::Read) => {
 			    if test_rw != "read" || addr != test_addr {
 				return Err(format!("expected '{} {:04x}', got {:?} {}",
 						   test_rw, test_addr, event, addr))
@@ -1144,13 +1149,14 @@ mod tests {
 			    }
 			    cpu_bus.store(mem[addr as usize], Ordering::Relaxed)
 			}
-			IO::Write => {
+			Some(IO::Write) => {
 			    if test_rw != "write" || addr != test_addr {
 				return Err(format!("expected '{} {:04x}', got {:?} {}",
 						   test_rw, test_addr, event, addr))
 			    }
 			    mem[addr as usize] = cpu_bus.load(Ordering::Relaxed)
 			}
+			None => ()
 		    }
 		}
 		CoroutineState::Complete(msg) => {
@@ -1235,12 +1241,13 @@ mod tests {
 	    match Pin::new(&mut cpu_process).resume(()) {
 		CoroutineState::Yielded((addr, event)) => {
 		    match event {
-			IO::Read => {
+			Some(IO::Read) => {
 			    cpu_bus.store(mem[addr as usize], Ordering::Relaxed)
 			}
-			IO::Write => {
+			Some(IO::Write) => {
 			    mem[addr as usize] = cpu_bus.load(Ordering::Relaxed)
 			}
+			None => ()
 		    }
 		}
 		CoroutineState::Complete(msg) => {
@@ -1318,12 +1325,13 @@ mod tests {
 	    match Pin::new(&mut cpu_process).resume(()) {
 		CoroutineState::Yielded((addr, event)) => {
 		    match event {
-			IO::Read => {
+			Some(IO::Read) => {
 			    cpu_bus.store(mem[addr as usize], Ordering::Relaxed)
 			}
-			IO::Write => {
+			Some(IO::Write) => {
 			    mem[addr as usize] = cpu_bus.load(Ordering::Relaxed)
 			}
+			None => ()
 		    }
 		}
 		CoroutineState::Complete(msg) => {

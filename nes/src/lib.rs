@@ -169,12 +169,15 @@ impl Nes {
 			ppu_regs: &PpuRegs,
 			(addr, io) : CpuEvent)
 			-> Result<(), String> {
-	let mapped_addr = cart.mapper.map(CpuOrPpu::Cpu, io.into(), addr);
+
+	let rw = if let Some(rw) = io { rw } else { return Ok(()) };
+	
+	let mapped_addr = cart.mapper.map(CpuOrPpu::Cpu, rw.into(), addr);
 
 	// Main memory access
 	if addr <= 0x1FFF {
 	    let wrapped_addr = addr % 2048;
-	    match io {
+	    match rw {
 		IO::Read => {
 		    // println!("{:04x}", fixed_addr);
 		    cpu_bus.store(self.ram[wrapped_addr as usize],
@@ -190,7 +193,7 @@ impl Nes {
 	// PPU access
 	else if addr <= 0x3FFF {
 	    let wrapped_addr = addr % 8;
-	    match io {
+	    match rw {
 		IO::Read => {
 		    match wrapped_addr {
 			0 => (),
@@ -236,7 +239,7 @@ impl Nes {
 	else {
 	    match mapped_addr {
 		None =>
-		    match io {
+		    match rw {
 			IO::Read => (), // Read open bus (leave cpu_bus unchanged)
 			IO::Write => (), // Write to unmapped memory?
 		    }
@@ -246,8 +249,16 @@ impl Nes {
 			MapTarget::Default => PrgOrChr::Prg,
 			MapTarget::Cartridge(x) => x,
 		    };
-		    let data = cart.read(prgorchr, adr)?;
-		    cpu_bus.store(data, Ordering::Relaxed)
+		    match rw {
+			IO::Read => {
+			    let data = cart.read(prgorchr, adr)?;
+			    cpu_bus.store(data, Ordering::Relaxed)
+			}
+			IO::Write => {
+			    let data = cpu_bus.load(Ordering::Relaxed);
+			    cart.write(prgorchr, adr, data)?
+			}
+		    }
 		}
 	    }
 	};

@@ -100,6 +100,15 @@ impl From<PpuCtrl> for usize {
     }
 }
 
+// TODO: refactor to take the following into account (remove the
+// actual registers for PPUADDR and PPUSCROLL, not sure about
+// PPUCTRL):
+
+// PPUADDR itself is not storage. It is an interface for writing to t and v.
+// PPUSCROLL is another such interface.
+// The low 2 bits of PPUCTRL are, too.
+// Just because hardware presents a register for the CPU to interact with doesn't mean that that register actually has a byte of storage in the hardware.
+
 #[derive(Clone, Debug)]
 pub struct PpuRegs {
     ctrl:    Arc<AtomicU8>,

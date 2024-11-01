@@ -150,7 +150,7 @@ pub trait Mapper where {
 	let mapped = self.try_map(cp, rw, addr);
 	match cp {
 	    CpuOrPpu::Cpu => {
-		if addr < 0x4000 {
+		if addr < 0x4013 || addr == 0x4017 {
 		    return Some((MapTarget::Default, addr))
 		}
 	    }
