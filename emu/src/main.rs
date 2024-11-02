@@ -9,7 +9,7 @@ use std::sync::atomic::{Ordering};
 // use std::thread::sleep;
 // use std::time::{Instant};
 
-use cpu::{Cpu, IO, parse_instr_with_arg, PC_MONITOR};
+use cpu::{Cpu, IO, parse_instr_with_arg};
 use nes::cart::{Cart, CpuOrPpu, INES};
 use nes::{Nes, yielded};
 // use nes::ppu::{Ppu};
@@ -151,9 +151,15 @@ fn print_log(nes: *const Nes, cart: *const Cart, cyc: usize) {
 	let y = (*(*nes).cpu).y;
 	let p = (*(*nes).cpu).status;
 	let sp = (*(*nes).cpu).sp;
-	let Some((_, mapped_addr)) =
-	    (*cart).mapper.map(CpuOrPpu::Cpu, IO::Read.into(), pc)
-	else { panic!() };
+	let mapped_addr = if let Some((_, addr)) =
+	    (*cart).mapper.map(CpuOrPpu::Cpu, IO::Read.into(), pc) {
+		addr
+	    } else {
+		pc
+	    };
+	// let Some((_, mapped_addr)) =
+	//     (*cart).mapper.map(CpuOrPpu::Cpu, IO::Read.into(), pc)
+	// else { panic!("{:04x}", pc) };
 	let (instr, _) = parse_instr_with_arg(&(*cart).rom.prgrom,
 					      mapped_addr as usize);
 	println!("{:04X}: {}, a:{:02X} x:{:02X} y:{:02X} p:{:02X} sp:{:02X} {}",
@@ -202,7 +208,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let chrrom_left = chrrom_texture(&mut rl, &thread, &ines, &palette, 0)?;
     let chrrom_right = chrrom_texture(&mut rl, &thread, &ines, &palette, 1)?;
 
-    let mut pc = PC_MONITOR.load(Ordering::Relaxed);
+    let mut pc = unsafe { (*(*nes_ptr).cpu).pc };
 
     let expected_log = parse_log("/home/alex/source/nes-test-roms/other/nestest.log")?;
     let mut i = 0;
@@ -213,7 +219,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	// Run NES cycles for the frame
 	for _ in 0 .. CYCLES_PER_FRAME {
 	    _ = yielded(Pin::new(&mut nes_process).resume(()))?;
-	    let new_pc = PC_MONITOR.load(Ordering::Relaxed);
+	    let new_pc = unsafe { (*(*nes_ptr).cpu).pc };
 
 	    cycles += 1;
 	    if new_pc != pc {
@@ -295,25 +301,39 @@ mod tests {
 	let expected_log = parse_log(
 	    "/home/alex/source/nes-test-roms/other/nestest.log")?;
 
-	let mut pc = PC_MONITOR.load(Ordering::Relaxed);
+	let mut pc = 0;
 	let mut i = 0;
 	let mut cycles = 7 * 3;
-	loop {
-	    _ = yielded(Pin::new(&mut nes_process).resume(()))?;
-	    let new_pc = PC_MONITOR.load(Ordering::Relaxed);
+
+	_ = yielded(Pin::new(&mut nes_process).resume(()))?;
+	cycles += 1;
+
+	let pc_monitor = unsafe { (*(*nes_ptr).cpu).pc_monitor.clone() };
+
+	let mut check = || {
 	    cycles += 1;
+	    let new_pc = pc_monitor.load(Ordering::Relaxed);
 	    if new_pc != pc {
 		unsafe {
 		    let state = (&*(*nes_ptr).cpu, cycles / 3).into();
 		    if expected_log[i] != state {
-			return Err(format!("expected: {}, actual: {}",
-					   expected_log[i], state).into());
+			return Err::<(), String>(
+			    format!("expected: {}, actual: {}",
+				    expected_log[i], state).into());
 		    }
 		}
 		i += 1;
 	    }
-	    pc = new_pc
+	    pc = new_pc;
+	    Ok(())
+	};
+
+	check()?;
+	loop {
+	    _ = yielded(Pin::new(&mut nes_process).resume(()))?;
+	    check()?
 	}
 	Ok(())
     }
+
 }

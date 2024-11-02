@@ -130,36 +130,40 @@ impl From<Vec<u8>> for INES {
 //     }
 // }
 
+fn assert(b : bool) -> Option<()> {
+    if b { Some(()) } else { None }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CpuOrPpu { Cpu, Ppu }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum PrgOrChr { Prg, Chr }
+pub enum MapTarget { Prg, Chr }
 
-#[derive(Clone, Copy, Debug)]
-pub enum MapTarget { Default, Cartridge(PrgOrChr) }
+// #[derive(Clone, Copy, Debug)]
+// pub enum MapTarget { Default, Cartridge(PrgOrChr) }
 
 pub trait Mapper where {
-    fn try_map(&self, cp: CpuOrPpu, rw: IO, addr: u16)
-	       -> Option<(MapTarget, u16)>;
-    fn map(&self, cp: CpuOrPpu, rw: IO, addr: u16)
-	   -> Option<(MapTarget, u16)> {
-	if cp == CpuOrPpu::Cpu && addr == 0x4015 {
-	    return Some((MapTarget::Default, addr))
-	}
+    fn try_map(&self, cp: CpuOrPpu, rw: IO, addr: u16) -> Option<(MapTarget, u16)>;
+    fn map(&self, cp: CpuOrPpu, rw: IO, addr: u16) -> Option<(MapTarget, u16)> {
+	// Reads/writes to 0x4015 don't even get to this point.
+	// if cp == CpuOrPpu::Cpu && addr == 0x4015 {
+	//     return Some((MapTarget::Default, addr))
+	// }
+
+	println!("{:?} {:?} {:04x}", cp, rw, addr);
+
+	// Pass the address through the mapper. Even if it doesn't map
+	// to anything, the mapper can change its internal state via
+	// passive observation of the read/write.
 	let mapped = self.try_map(cp, rw, addr);
-	match cp {
-	    CpuOrPpu::Cpu => {
-		if addr < 0x4013 || addr == 0x4017 {
-		    return Some((MapTarget::Default, addr))
-		}
-	    }
-	    CpuOrPpu::Ppu => {
-		if addr >= 0x3F00 {
-		    return Some((MapTarget::Default, addr))
-		}
-	    }
-	}
+
+	// Palette table read/writes not remappable.
+	assert(!(cp == CpuOrPpu::Ppu && 0x3F00 <= addr && addr < 0x4000))?;
+
+	// if addr < 0x4013 || addr == 0x4017 {
+	//     return Some((MapTarget::Default, addr))
+
 	mapped
     }
 }
@@ -176,29 +180,25 @@ impl Mapper000 {
     }
 }
 
-fn assert(b : bool) -> Option<()> {
-    if b { Some(()) } else { None }
-}
-
 impl Mapper for Mapper000 {
     fn try_map(&self, cp: CpuOrPpu, rw: IO, addr: u16)
 	       -> Option<(MapTarget, u16)> {
 	match cp {
 	    CpuOrPpu::Cpu => {
+		// if addr < 0x4013 || addr == 0x4017 {
+		//     return Some((MapTarget::Default, addr))
+		// }
 		assert(addr >= 0x8000)?;
-		if addr < 0x8000 {
-		    Some((MapTarget::Default, addr))
-		} else {
-		Some((MapTarget::Cartridge(PrgOrChr::Prg),
+		Some((MapTarget::Prg,
 		      addr & (if self.two_prg_banks { 0x7FFF } else { 0x3FFF })))
-		}
 	    }
-	    CpuOrPpu::Ppu => {
-		assert(rw.is_read())?;
-		// assert(addr >= 0x8000)?;
-		Some((MapTarget::Default, addr))
+	    _ => None
 	    }
-	}
+	    // CpuOrPpu::Ppu => {
+	    // 	assert(rw.is_read())?;
+	    // 	// assert(addr >= 0x8000)?;
+	    // 	Some((MapTarget::Default, addr))
+	// }
     }
 }
 
@@ -221,28 +221,29 @@ impl Cart {
 	    mapper: mapper,
 	})
     }
-    pub fn read(&self, cp: PrgOrChr, addr: u16) -> Result<u8, String> {
-	match cp {
-	    PrgOrChr::Prg => self.rom.prgrom.get(addr as usize)
+    pub fn read(&self, tgt: MapTarget, addr: u16) -> Result<u8, String> {
+	match tgt {
+	    MapTarget::Prg => self.rom.prgrom.get(addr as usize)
 		.ok_or(format!("PRGROM read out of bounds: {:04x}", addr)).copied(),
-	    PrgOrChr::Chr => self.rom.chrrom.get(addr as usize)
-		.ok_or("CHRROM read out of bounds".into()).copied(),
+	    MapTarget::Chr => self.rom.chrrom.get(addr as usize)
+		.ok_or(format!("CHRROM read out of bounds: {:04x}", addr)).copied(),
 	}
     }
-    pub fn write(&mut self, cp: PrgOrChr, addr: u16, byte: u8) -> Result<(), String> {
+    pub fn write(&mut self, cp: MapTarget, addr: u16, byte: u8)
+		 -> Result<(), String> {
 	match cp {
-	    PrgOrChr::Prg => {
+	    MapTarget::Prg => {
 		if (addr as usize) < self.rom.prgrom.len() {
 		    self.rom.prgrom[addr as usize] = byte
 		} else {
-		    return Err("PRGROM write out of bounds".into())
+		    return Err(format!("PRGROM write out of bounds: {:04x}", addr))
 		}
 	    }
-	    PrgOrChr::Chr => {
+	    MapTarget::Chr => {
 		if (addr as usize) < self.rom.chrrom.len() {
 		    self.rom.chrrom[addr as usize] = byte
 		} else {
-		    return Err("CHRROM write out of bounds".into())
+		    return Err(format!("CHRROM write out of bounds: {:04x}", addr))
 		}
 	    }
 	}

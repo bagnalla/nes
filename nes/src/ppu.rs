@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU16, Ordering};
 use atomic_bitfield::AtomicBitField as _;
 use bitflags::bitflags;
 
-use crate::cart::{Cart, CpuOrPpu, MapTarget};
+use crate::cart::{Cart, CpuOrPpu};
 use cpu::IO;
 
 // #[derive(Debug)]
@@ -278,45 +278,34 @@ impl PpuRegs {
 	    self.load_data()
 	}
 
-	let mapped = cart.mapper.map(CpuOrPpu::Ppu, io.into(),
-				     self.addr.load(Ordering::Relaxed));
+	let addr = self.addr.load(Ordering::Relaxed);
+	let mapped = cart.mapper.map(CpuOrPpu::Ppu, io.into(), addr);
 
 	// If read, load something from vram or cartridge (depending
 	// on mapper) into read_buf. If write, copy it into PPUDATA
 	// and also wherever the mapper wants to put it.
 		
 	match mapped {
-	    None => {
-		match io {
-		    IO::Read => {
-			// Read from open bus (unmapped address)
-			// returns low byte of the address.
-			self.read_buf.store(self.addr.load(Ordering::Relaxed) as u8,
-					    Ordering::Relaxed)
-		    }
-		    IO::Write => () // Write to unmapped memory??
-		}
-	    }
-	    Some((MapTarget::Default, mapped_addr)) => {
+	    None => {		
 		// Pattern memory / "CHR ROM"
-		if mapped_addr <= 0x1FFF {
+		if addr <= 0x1FFF {
 		    match io {
 			IO::Read => {
-			    let byte = cart.rom.chrrom[mapped_addr as usize];
+			    let byte = cart.rom.chrrom[addr as usize];
 			    self.read_buf.store(byte, Ordering::Relaxed)
 			}
 			IO::Write => {
 			    // Is it possible to check if CHR is RAM?
 			    // To throw error here if not RAM...
 			    let byte = self.read_bus();
-			    cart.rom.chrrom[mapped_addr as usize] = byte;
+			    cart.rom.chrrom[addr as usize] = byte;
 			    self.data.store(byte, Ordering::Relaxed)
 			}
 		    }
 		}
 		// Nametable memory / internal VRAM
-		else if mapped_addr <= 0x3EFF {
-		    let wrapped_addr = mapped_addr & 0x800;
+		else if addr <= 0x3EFF {
+		    let wrapped_addr = addr & 0x800;
 		    match io {
 			IO::Read => {
 			    let byte = vram[wrapped_addr as usize];
@@ -330,8 +319,8 @@ impl PpuRegs {
 		    }
 		}
 		// Palette memory
-		else if mapped_addr <= 0x3FFF {
-		    let wrapped_addr = mapped_addr & 0x001F;
+		else if addr <= 0x3FFF {
+		    let wrapped_addr = addr & 0x001F;
 		    let palette_addr = palette_tbl_addr(wrapped_addr);
 		    match io {
 			IO::Read => {
@@ -346,10 +335,17 @@ impl PpuRegs {
 		    }
 		}
 		else {
-		    return Err(format!("{} out of PPU address space", mapped_addr))
+		    match io {
+		        IO::Read => {
+			// Read from open bus (unmapped address)
+			// returns low byte of the address.
+			self.read_buf.store(addr as u8, Ordering::Relaxed)
+		        }
+		        IO::Write => () // Write to unmapped memory??
+		    }
 		}
 	    }
-	    Some((MapTarget::Cartridge(tgt), mapped_addr)) => {
+	    Some((tgt, mapped_addr)) => {
 		match io {
 		    IO::Read => {
 			let byte = cart.read(tgt, mapped_addr)?;
@@ -363,7 +359,7 @@ impl PpuRegs {
 		}
 	    }
 	}
-	
+    
 	// Increment PPUADDR
 	let incr = if self.ctrl.get_bit(2, Ordering::Relaxed) {
 	    32

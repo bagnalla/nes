@@ -1,4 +1,5 @@
 #![feature(coroutines, coroutine_trait, stmt_expr_attributes)]
+// #![feature(let_chains)]
 
 pub mod ppu;
 pub mod cart;
@@ -15,7 +16,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 // use atomic_bitfield::AtomicBitField as _;
 
 use cpu::{Cpu, CpuEvent, IO};
-use crate::cart::{Cart, CpuOrPpu, MapTarget, PrgOrChr};
+use crate::cart::{Cart, CpuOrPpu, MapTarget};
 use crate::ppu::{Ppu, PpuRegs};
 
 pub fn yielded<Y, R: std::fmt::Debug>(state: CoroutineState<Y, R>)
@@ -169,12 +170,14 @@ impl Nes {
 			ppu_regs: &PpuRegs,
 			(addr, io) : CpuEvent)
 			-> Result<(), String> {
-
+	// Exit early if no bus IO (don't want to let mapper see anything).
 	let rw = if let Some(rw) = io { rw } else { return Ok(()) };
-	
+
+	// Let mapper observe the read/write even if we aren't going
+	// to use the mapped address.
 	let mapped_addr = cart.mapper.map(CpuOrPpu::Cpu, rw.into(), addr);
 
-	// Main memory access
+	// Main memory access.
 	if addr <= 0x1FFF {
 	    let wrapped_addr = addr % 2048;
 	    match rw {
@@ -190,7 +193,7 @@ impl Nes {
 	    }
 	}
 
-	// PPU access
+	// PPU access.
 	else if addr <= 0x3FFF {
 	    let wrapped_addr = addr % 8;
 	    match rw {
@@ -234,29 +237,31 @@ impl Nes {
 		}
 	    }
 	}
-
-	// Something else
+	// Something possibly configured by mapper.
 	else {
 	    match mapped_addr {
-		None =>
-		    match rw {
-			IO::Read => (), // Read open bus (leave cpu_bus unchanged)
-			IO::Write => (), // Write to unmapped memory?
+		None => {
+		    // APU registers
+		    if addr < 0x4013 || addr == 0x4017 {
+			todo!("asdf")
 		    }
+		    // Unmapped
+		    else {
+			match rw {
+			    IO::Read => (), // Read open bus (leave cpu_bus unchanged)
+			    IO::Write => (), // Write to unmapped memory?
+			}
+		    }
+		}
 		Some((tgt, adr)) => {
-		    // Read/write cart
-		    let prgorchr = match tgt {
-			MapTarget::Default => PrgOrChr::Prg,
-			MapTarget::Cartridge(x) => x,
-		    };
 		    match rw {
 			IO::Read => {
-			    let data = cart.read(prgorchr, adr)?;
+			    let data = cart.read(tgt, adr)?;
 			    cpu_bus.store(data, Ordering::Relaxed)
 			}
 			IO::Write => {
 			    let data = cpu_bus.load(Ordering::Relaxed);
-			    cart.write(prgorchr, adr, data)?
+			    cart.write(tgt, adr, data)?
 			}
 		    }
 		}
@@ -352,20 +357,37 @@ impl Nes {
     pub fn run(&mut self,
 	       mut cart: Cart)
 	       -> Box<dyn Coroutine<Yield = usize, Return = String> + Unpin + '_> {
-	let go = #[coroutine] static move || {
+	// // Set up CPU
+	// let mut cpu = Cpu::new();
+	// // cpu.pc = 0x8000;
+	// cpu.pc = 0xc000;
+	// cpu.sp = 0xFD;
+	// cpu.update_monitor();
+	// self.cpu = &cpu as *const Cpu;
+	// let cpu_bus = cpu.io_bus.clone();
+	// let reset_signal = cpu.reset_signal.clone();
+	// let _irq_signal = cpu.irq_signal.clone();
+	// let _nmi_signal = cpu.nmi_signal.clone();
 
+	// // Set up PPU
+	// let mut ppu = Ppu::new();
+	// self.ppu = &mut ppu as *mut Ppu;
+	// let ppu_regs = ppu.regs.clone();
+
+	let go = #[coroutine] static move || {
 	    // Set up CPU
 	    let mut cpu = Cpu::new();
 	    // cpu.pc = 0x8000;
 	    cpu.pc = 0xc000;
 	    cpu.sp = 0xFD;
+	    cpu.update_monitor();
 	    self.cpu = &cpu as *const Cpu;
 	    let cpu_bus = cpu.io_bus.clone();
 	    let reset_signal = cpu.reset_signal.clone();
 	    let _irq_signal = cpu.irq_signal.clone();
 	    let _nmi_signal = cpu.nmi_signal.clone();
 	    let mut cpu_process = cpu.run();
-
+	    
 	    // Set up PPU
 	    let mut ppu = Ppu::new();
 	    self.ppu = &mut ppu as *mut Ppu;

@@ -11,8 +11,6 @@
 // TODO: consider using threads and channels instead of coroutines? Or
 // async/await with channels?
 
-// TODO: special case for reading from 0x4015 (apu status register)
-
 // use std::collections::HashMap;
 use std::ops::{Coroutine};
 use std::fmt;
@@ -20,13 +18,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU16, Ordering};
 
 use bitflags::bitflags;
-
-pub static PC_MONITOR: AtomicU16 = AtomicU16::new(0);
-// static SP_MONITOR: AtomicU8 = AtomicU8::new(0);
-// static A_MONITOR: AtomicU8 = AtomicU8::new(0);
-// static X_MONITOR: AtomicU8 = AtomicU8::new(0);
-// static Y_MONITOR: AtomicU8 = AtomicU8::new(0);
-// static P_MONITOR: AtomicU8 = AtomicU8::new(0);
 
 bitflags! {
     #[derive(Clone, Copy, Debug)]
@@ -49,12 +40,19 @@ pub struct Cpu {
     pub a: u8,
     pub x: u8,
     pub y: u8,
+    
     pub status: Flags,
+    pub apu_status: Flags,
+    pub apu_enabled: bool,
+    
     pub reset_signal: Arc<AtomicBool>,
     pub irq_signal: Arc<AtomicBool>,
     pub nmi_signal: Arc<AtomicBool>,
 
     pub io_bus: Arc<AtomicU8>,
+
+    // Only updates at the start of each new instruction.
+    pub pc_monitor: Arc<AtomicU16>,
 }
 
 impl fmt::Display for Cpu {
@@ -107,10 +105,13 @@ impl Cpu {
 	    y: 0,
 	    // status: Flags::empty() | Flags::D | Flags::B,
 	    status: Flags::I | Flags::U,
+	    apu_status: Flags::empty(),
+	    apu_enabled: true,
 	    reset_signal: Arc::new(AtomicBool::new(false)),
 	    irq_signal: Arc::new(AtomicBool::new(false)),
 	    nmi_signal: Arc::new(AtomicBool::new(false)),
 	    io_bus: Arc::new(AtomicU8::new(0)),
+	    pc_monitor: Arc::new(AtomicU16::new(0)),
 	}
     }
     fn set_flag(&mut self, f: Flags, b: bool) {
@@ -155,8 +156,8 @@ impl Cpu {
 	&INSTR_TABLE[op as usize]
     }
 
-    fn update_monitor(&self) {
-	PC_MONITOR.store(self.pc, Ordering::Relaxed);
+    pub fn update_monitor(&self) {
+	self.pc_monitor.store(self.pc, Ordering::Relaxed);
 	// SP_MONITOR.store(self.sp, Ordering::Relaxed);
 	// A_MONITOR.store(self.a, Ordering::Relaxed);
 	// X_MONITOR.store(self.x, Ordering::Relaxed);
@@ -166,17 +167,17 @@ impl Cpu {
 
     pub fn run(&mut self)
 	   -> Box<dyn Coroutine<Yield = CpuEvent, Return = String> + Unpin + '_> {
-	
+
 	macro_rules! fetch {
 	    ( $adr:expr ) => {
 		{
-		    if $adr == 0x4015 {
-			yield ($adr, None);
-			todo!()
-		    } else {
+		    // if $adr == 0x4015 {
+		    // 	yield ($adr, None);
+		    // 	self.apu_status.bits()
+		    // } else {
 			yield ($adr, Some(IO::Read));
 			self.io_bus.load(Ordering::Relaxed)
-		    }
+		    // }
 		}
 	    };
 	}
@@ -184,13 +185,13 @@ impl Cpu {
 	macro_rules! write {
 	    ( $adr:expr, $val:expr ) => {
 		{
-		    if $adr == 0x4015 as u16 {
-			yield ($adr, None);
-			todo!()
-		    } else {
+		    // if $adr == 0x4015 as u16 {
+		    // 	yield ($adr, None);
+		    // 	self.apu_status = Flags::from_bits_retain($val)
+		    // } else {
 			self.io_bus.store($val, Ordering::Relaxed);
 			yield ($adr, Some(IO::Write))
-		    }
+		    // }
 		}
 	    };
 	}
@@ -198,9 +199,15 @@ impl Cpu {
 	macro_rules! next_pc {
 	    ( ) => {
 		{
-		    yield (self.pc, Some(IO::Read));
-		    self.pc = self.pc.wrapping_add(1);
-		    self.io_bus.load(Ordering::Relaxed)
+		    // if self.pc == 0x4015 as u16 {
+		    // 	yield (self.pc, None);
+		    // 	self.pc = self.pc.wrapping_add(1);
+		    // 	self.apu_status.bits()
+		    // } else {
+			yield (self.pc, Some(IO::Read));
+			self.pc = self.pc.wrapping_add(1);
+			self.io_bus.load(Ordering::Relaxed)
+		    // }
 		}
 	    };
 	}
@@ -1196,12 +1203,15 @@ mod tests {
     fn klaus_functional() -> Result<(), Box<dyn std::error::Error>> {
 	const PROGRAM_START: u16 = 0x400;
 	const SUCCESS_ADDR: u16 = 0x336d;
-	let path = "/home/alex/Dropbox/6502_65C02_functional_tests/6502_functional_test.bin";
+	let path =
+	    "/home/alex/Dropbox/6502_65C02_functional_tests/6502_functional_test.bin";
 	let mut mem: Vec<u8> = load_mem(path, 0x000A)?;
 
 	let mut cpu = Cpu::new();
 	cpu.pc = PROGRAM_START;
 	let cpu_bus = cpu.io_bus.clone();
+	let pc_monitor = cpu.pc_monitor.clone();
+	// let cpu_ptr = &cpu as *const Cpu;
 	let mut cpu_process = cpu.run();
 
 	// let mut trace: Vec<(u16, InstrWithArg)> = Vec::new();
@@ -1214,7 +1224,7 @@ mod tests {
 	let mut same_pc_counter = 0;
 	loop {
 	    n += 1;
-	    let pc = PC_MONITOR.load(Ordering::Relaxed);
+	    let pc = pc_monitor.load(Ordering::Relaxed);
 	    if pc == old_pc {
 		same_pc_counter += 1;
 		if same_pc_counter >= 10 {
@@ -1280,8 +1290,9 @@ mod tests {
 
 	let mut cpu = Cpu::new();
 	cpu.pc = PROGRAM_START;
-	PC_MONITOR.store(PROGRAM_START, Ordering::Relaxed);
+	// PC_MONITOR.store(PROGRAM_START, Ordering::Relaxed);
 	let cpu_bus = cpu.io_bus.clone();
+	let pc_monitor = cpu.pc_monitor.clone();
 	let irq_signal = cpu.irq_signal.clone();
 	let nmi_signal = cpu.nmi_signal.clone();
 	let mut cpu_process = cpu.run();
@@ -1308,7 +1319,7 @@ mod tests {
 	    prev_irq = irq;
 	    prev_nmi = nmi;
 
-	    let pc = PC_MONITOR.load(Ordering::Relaxed);
+	    let pc = pc_monitor.load(Ordering::Relaxed);
 	    if pc == old_pc {
 		same_pc_counter += 1;
 		if same_pc_counter >= 10 {
