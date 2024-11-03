@@ -136,22 +136,22 @@ impl Cpu {
 	    Instr { opcode: opcode, mode: mode }
 	}
 	static INSTR_TABLE: [Instr; 256] = [
-	    i(Brk, Imp), i(Ora, Izx), i(Xxx, Imp), i(Slo, Izx), i(Nop, Zp0), i(Ora, Zp0), i(Asl, Zp0), i(Slo, Zp0), i(Php, Imp), i(Ora, Imm), i(Asl, Imp), i(Xxx, Imp), i(Nop, Abs), i(Ora, Abs), i(Asl, Abs), i(Slo, Abs),
-	    i(Bpl, Rel), i(Ora, Izy), i(Xxx, Imp), i(Slo, Izy), i(Nop, Zpx), i(Ora, Zpx), i(Asl, Zpx), i(Slo, Zpx), i(Clc, Imp), i(Ora, Aby), i(Nop, Imp), i(Slo, Aby), i(Nop, Abx), i(Ora, Abx), i(Asl, Abx), i(Slo, Abx),
-	    i(Jsr, Abs), i(And, Izx), i(Xxx, Imp), i(Rla, Izx), i(Bit, Zp0), i(And, Zp0), i(Rol, Zp0), i(Rla, Zp0), i(Plp, Imp), i(And, Imm), i(Rol, Imp), i(Xxx, Imp), i(Bit, Abs), i(And, Abs), i(Rol, Abs), i(Rla, Abs),
-	    i(Bmi, Rel), i(And, Izy), i(Xxx, Imp), i(Rla, Izy), i(Nop, Zpx), i(And, Zpx), i(Rol, Zpx), i(Rla, Zpx), i(Sec, Imp), i(And, Aby), i(Nop, Imp), i(Rla, Aby), i(Nop, Abx), i(And, Abx), i(Rol, Abx), i(Rla, Abx),
-	    i(Rti, Imp), i(Eor, Izx), i(Xxx, Imp), i(Sre, Izx), i(Nop, Zp0), i(Eor, Zp0), i(Lsr, Zp0), i(Sre, Zp0), i(Pha, Imp), i(Eor, Imm), i(Lsr, Imp), i(Xxx, Imp), i(Jmp, Abs), i(Eor, Abs), i(Lsr, Abs), i(Sre, Abs),
-	    i(Bvc, Rel), i(Eor, Izy), i(Xxx, Imp), i(Sre, Izy), i(Nop, Zpx), i(Eor, Zpx), i(Lsr, Zpx), i(Sre, Zpx), i(Cli, Imp), i(Eor, Aby), i(Nop, Imp), i(Sre, Aby), i(Nop, Abx), i(Eor, Abx), i(Lsr, Abx), i(Sre, Abx),
-	    i(Rts, Imp), i(Adc, Izx), i(Xxx, Imp), i(Rra, Izx), i(Nop, Zp0), i(Adc, Zp0), i(Ror, Zp0), i(Rra, Zp0), i(Pla, Imp), i(Adc, Imm), i(Ror, Imp), i(Xxx, Imp), i(Jmp, Ind), i(Adc, Abs), i(Ror, Abs), i(Rra, Abs),
-	    i(Bvs, Rel), i(Adc, Izy), i(Xxx, Imp), i(Rra, Izy), i(Nop, Zpx), i(Adc, Zpx), i(Ror, Zpx), i(Rra, Zpx), i(Sei, Imp), i(Adc, Aby), i(Nop, Imp), i(Rra, Aby), i(Nop, Abx), i(Adc, Abx), i(Ror, Abx), i(Rra, Abx),
+	    i(Brk, Imp), i(Ora, Izx), i(Hlt, Imp), i(Slo, Izx), i(Nop, Zp0), i(Ora, Zp0), i(Asl, Zp0), i(Slo, Zp0), i(Php, Imp), i(Ora, Imm), i(Asl, Imp), i(Xxx, Imp), i(Nop, Abs), i(Ora, Abs), i(Asl, Abs), i(Slo, Abs),
+	    i(Bpl, Rel), i(Ora, Izy), i(Hlt, Imp), i(Slo, Izy), i(Nop, Zpx), i(Ora, Zpx), i(Asl, Zpx), i(Slo, Zpx), i(Clc, Imp), i(Ora, Aby), i(Nop, Imp), i(Slo, Aby), i(Nop, Abx), i(Ora, Abx), i(Asl, Abx), i(Slo, Abx),
+	    i(Jsr, Abs), i(And, Izx), i(Hlt, Imp), i(Rla, Izx), i(Bit, Zp0), i(And, Zp0), i(Rol, Zp0), i(Rla, Zp0), i(Plp, Imp), i(And, Imm), i(Rol, Imp), i(Xxx, Imp), i(Bit, Abs), i(And, Abs), i(Rol, Abs), i(Rla, Abs),
+	    i(Bmi, Rel), i(And, Izy), i(Hlt, Imp), i(Rla, Izy), i(Nop, Zpx), i(And, Zpx), i(Rol, Zpx), i(Rla, Zpx), i(Sec, Imp), i(And, Aby), i(Nop, Imp), i(Rla, Aby), i(Nop, Abx), i(And, Abx), i(Rol, Abx), i(Rla, Abx),
+	    i(Rti, Imp), i(Eor, Izx), i(Hlt, Imp), i(Sre, Izx), i(Nop, Zp0), i(Eor, Zp0), i(Lsr, Zp0), i(Sre, Zp0), i(Pha, Imp), i(Eor, Imm), i(Lsr, Imp), i(Xxx, Imp), i(Jmp, Abs), i(Eor, Abs), i(Lsr, Abs), i(Sre, Abs),
+	    i(Bvc, Rel), i(Eor, Izy), i(Hlt, Imp), i(Sre, Izy), i(Nop, Zpx), i(Eor, Zpx), i(Lsr, Zpx), i(Sre, Zpx), i(Cli, Imp), i(Eor, Aby), i(Nop, Imp), i(Sre, Aby), i(Nop, Abx), i(Eor, Abx), i(Lsr, Abx), i(Sre, Abx),
+	    i(Rts, Imp), i(Adc, Izx), i(Hlt, Imp), i(Rra, Izx), i(Nop, Zp0), i(Adc, Zp0), i(Ror, Zp0), i(Rra, Zp0), i(Pla, Imp), i(Adc, Imm), i(Ror, Imp), i(Xxx, Imp), i(Jmp, Ind), i(Adc, Abs), i(Ror, Abs), i(Rra, Abs),
+	    i(Bvs, Rel), i(Adc, Izy), i(Hlt, Imp), i(Rra, Izy), i(Nop, Zpx), i(Adc, Zpx), i(Ror, Zpx), i(Rra, Zpx), i(Sei, Imp), i(Adc, Aby), i(Nop, Imp), i(Rra, Aby), i(Nop, Abx), i(Adc, Abx), i(Ror, Abx), i(Rra, Abx),
 	    i(Nop, Imm), i(Sta, Izx), i(Nop, Imm), i(Sax, Izx), i(Sty, Zp0), i(Sta, Zp0), i(Stx, Zp0), i(Sax, Zp0), i(Dey, Imp), i(Nop, Imm), i(Txa, Imp), i(Xxx, Imp), i(Sty, Abs), i(Sta, Abs), i(Stx, Abs), i(Sax, Abs),
-	    i(Bcc, Rel), i(Sta, Izy), i(Xxx, Imp), i(Xxx, Imp), i(Sty, Zpx), i(Sta, Zpx), i(Stx, Zpy), i(Sax, Zpy), i(Tya, Imp), i(Sta, Aby), i(Txs, Imp), i(Xxx, Imp), i(Xxx, Imp), i(Sta, Abx), i(Xxx, Imp), i(Xxx, Imp),
+	    i(Bcc, Rel), i(Sta, Izy), i(Hlt, Imp), i(Xxx, Imp), i(Sty, Zpx), i(Sta, Zpx), i(Stx, Zpy), i(Sax, Zpy), i(Tya, Imp), i(Sta, Aby), i(Txs, Imp), i(Xxx, Imp), i(Xxx, Imp), i(Sta, Abx), i(Xxx, Imp), i(Xxx, Imp),
 	    i(Ldy, Imm), i(Lda, Izx), i(Ldx, Imm), i(Lax, Izx), i(Ldy, Zp0), i(Lda, Zp0), i(Ldx, Zp0), i(Lax, Zp0), i(Tay, Imp), i(Lda, Imm), i(Tax, Imp), i(Lax, Imm), i(Ldy, Abs), i(Lda, Abs), i(Ldx, Abs), i(Lax, Abs),
-	    i(Bcs, Rel), i(Lda, Izy), i(Xxx, Imp), i(Lax, Izy), i(Ldy, Zpx), i(Lda, Zpx), i(Ldx, Zpy), i(Lax, Zpy), i(Clv, Imp), i(Lda, Aby), i(Tsx, Imp), i(Xxx, Imp), i(Ldy, Abx), i(Lda, Abx), i(Ldx, Aby), i(Lax, Aby),
+	    i(Bcs, Rel), i(Lda, Izy), i(Hlt, Imp), i(Lax, Izy), i(Ldy, Zpx), i(Lda, Zpx), i(Ldx, Zpy), i(Lax, Zpy), i(Clv, Imp), i(Lda, Aby), i(Tsx, Imp), i(Xxx, Imp), i(Ldy, Abx), i(Lda, Abx), i(Ldx, Aby), i(Lax, Aby),
 	    i(Cpy, Imm), i(Cmp, Izx), i(Nop, Imm), i(Dcp, Izx), i(Cpy, Zp0), i(Cmp, Zp0), i(Dec, Zp0), i(Dcp, Zp0), i(Iny, Imp), i(Cmp, Imm), i(Dex, Imp), i(Xxx, Imp), i(Cpy, Abs), i(Cmp, Abs), i(Dec, Abs), i(Dcp, Abs),
-	    i(Bne, Rel), i(Cmp, Izy), i(Xxx, Imp), i(Dcp, Izy), i(Nop, Zpx), i(Cmp, Zpx), i(Dec, Zpx), i(Dcp, Zpx), i(Cld, Imp), i(Cmp, Aby), i(Nop, Imp), i(Dcp, Aby), i(Nop, Abx), i(Cmp, Abx), i(Dec, Abx), i(Dcp, Abx),
+	    i(Bne, Rel), i(Cmp, Izy), i(Hlt, Imp), i(Dcp, Izy), i(Nop, Zpx), i(Cmp, Zpx), i(Dec, Zpx), i(Dcp, Zpx), i(Cld, Imp), i(Cmp, Aby), i(Nop, Imp), i(Dcp, Aby), i(Nop, Abx), i(Cmp, Abx), i(Dec, Abx), i(Dcp, Abx),
 	    i(Cpx, Imm), i(Sbc, Izx), i(Nop, Imm), i(Isc, Izx), i(Cpx, Zp0), i(Sbc, Zp0), i(Inc, Zp0), i(Isc, Zp0), i(Inx, Imp), i(Sbc, Imm), i(Nop, Imp), i(Sbc, Imm), i(Cpx, Abs), i(Sbc, Abs), i(Inc, Abs), i(Isc, Abs),
-	    i(Beq, Rel), i(Sbc, Izy), i(Xxx, Imp), i(Isc, Izy), i(Nop, Zpx), i(Sbc, Zpx), i(Inc, Zpx), i(Isc, Zpx), i(Sed, Imp), i(Sbc, Aby), i(Nop, Imp), i(Isc, Aby), i(Nop, Abx), i(Sbc, Abx), i(Inc, Abx), i(Isc, Abx),
+	    i(Beq, Rel), i(Sbc, Izy), i(Hlt, Imp), i(Isc, Izy), i(Nop, Zpx), i(Sbc, Zpx), i(Inc, Zpx), i(Isc, Zpx), i(Sed, Imp), i(Sbc, Aby), i(Nop, Imp), i(Isc, Aby), i(Nop, Abx), i(Sbc, Abx), i(Inc, Abx), i(Isc, Abx),
 	];
 	&INSTR_TABLE[op as usize]
     }
@@ -974,6 +974,10 @@ impl Cpu {
 			self.set_flag(Flags::N, res_sign > 0)
 		    }
 
+		    Hlt => {
+			return "HALT".into()
+		    }
+
 		    Xxx => return format!("Unsupported opcode {:02x}", instr_code)
 		}
 	    }
@@ -998,7 +1002,7 @@ enum Opcode {
     Tsx, Txa, Txs, Tya,
 
     // Unofficial opcodes
-    Lax, Sax, Dcp, Isc, Slo, Rla, Sre, Rra,
+    Lax, Sax, Dcp, Isc, Slo, Rla, Sre, Rra, Hlt,
 
     // Placeholder for unsupported opcodes
     Xxx

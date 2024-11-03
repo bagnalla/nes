@@ -28,6 +28,54 @@ pub fn yielded<Y, R: std::fmt::Debug>(state: CoroutineState<Y, R>)
     }
 }
 
+pub struct Apu {
+    Pulse1Duty: Arc<AtomicU8>,
+    Pulse1Sweep: Arc<AtomicU8>,
+    Pulse1TimerLow: Arc<AtomicU8>,
+    Pulse1TimerHigh: Arc<AtomicU8>,
+    Pulse2Duty: Arc<AtomicU8>,
+    Pulse2Sweep: Arc<AtomicU8>,
+    Pulse2TimerLow: Arc<AtomicU8>,
+    Pulse2TimerHigh: Arc<AtomicU8>,
+    TriangleStuff: Arc<AtomicU8>,
+    TriangleTimerLow: Arc<AtomicU8>,
+    TriangleTimerHigh: Arc<AtomicU8>,
+    NoiseStuff: Arc<AtomicU8>,
+    NoisePeriod: Arc<AtomicU8>,
+    NoiseLoad: Arc<AtomicU8>,
+    DMCStuff: Arc<AtomicU8>,
+    DMCLoad: Arc<AtomicU8>,
+    DMCAddress: Arc<AtomicU8>,
+    DMCLength: Arc<AtomicU8>,
+    FrameCounter: Arc<AtomicU8>,
+}
+
+impl Apu {
+    fn new() -> Self {
+	Apu {
+	    Pulse1Duty: Arc::new(AtomicU8::new(0)),
+	    Pulse1Sweep: Arc::new(AtomicU8::new(0)),
+	    Pulse1TimerLow: Arc::new(AtomicU8::new(0)),
+	    Pulse1TimerHigh: Arc::new(AtomicU8::new(0)),
+	    Pulse2Duty: Arc::new(AtomicU8::new(0)),
+	    Pulse2Sweep: Arc::new(AtomicU8::new(0)),
+	    Pulse2TimerLow: Arc::new(AtomicU8::new(0)),
+	    Pulse2TimerHigh: Arc::new(AtomicU8::new(0)),
+	    TriangleStuff: Arc::new(AtomicU8::new(0)),
+	    TriangleTimerLow: Arc::new(AtomicU8::new(0)),
+	    TriangleTimerHigh: Arc::new(AtomicU8::new(0)),
+	    NoiseStuff: Arc::new(AtomicU8::new(0)),
+	    NoisePeriod: Arc::new(AtomicU8::new(0)),
+	    NoiseLoad: Arc::new(AtomicU8::new(0)),
+	    DMCStuff: Arc::new(AtomicU8::new(0)),
+	    DMCLoad: Arc::new(AtomicU8::new(0)),
+	    DMCAddress: Arc::new(AtomicU8::new(0)),
+	    DMCLength: Arc::new(AtomicU8::new(0)),
+	    FrameCounter: Arc::new(AtomicU8::new(0)),
+	}
+    }
+}
+
 pub struct Nes {
     // pub cpu: Cpu,
     // ppu: Ppu,
@@ -39,6 +87,7 @@ pub struct Nes {
     pub palette_tbl: [u8; 32],
     pub cpu: *const Cpu,
     pub ppu: *mut Ppu,
+    pub apu: Apu,
 }
 
 impl Nes {
@@ -54,6 +103,7 @@ impl Nes {
 	    palette_tbl: [0; 32],
 	    cpu: ptr::null(),
 	    ppu: ptr::null_mut(),
+	    apu: Apu::new(),
 	}
     }
 
@@ -243,7 +293,31 @@ impl Nes {
 		None => {
 		    // APU registers
 		    if addr < 0x4013 || addr == 0x4017 {
-			todo!("asdf")
+			match rw {
+			    IO::Read => (), // Open bus
+			    IO::Write => {
+				let data = cpu_bus.load(Ordering::Relaxed);
+				match addr {
+				    0x4000 => self.apu.Pulse1Duty.store(
+					data, Ordering::Relaxed),
+				    0x4001 => self.apu.Pulse1Sweep.store(
+					data, Ordering::Relaxed),
+				    0x4002 => self.apu.Pulse1TimerLow.store(
+					data, Ordering::Relaxed),
+				    0x4003 => self.apu.Pulse1TimerHigh.store(
+					data, Ordering::Relaxed),
+				    0x4004 => self.apu.Pulse2Duty.store(
+					data, Ordering::Relaxed),
+				    0x4005 => self.apu.Pulse2Sweep.store(
+					data, Ordering::Relaxed),
+				    0x4006 => self.apu.Pulse2TimerLow.store(
+					data, Ordering::Relaxed),
+				    0x4007 => self.apu.Pulse2TimerHigh.store(
+					data, Ordering::Relaxed),
+				    _ => todo!("asdf")
+				}
+			    }
+			}
 		    }
 		    // Unmapped
 		    else {
@@ -355,37 +429,26 @@ impl Nes {
     // }
 
     pub fn run(&mut self,
-	       mut cart: Cart)
-	       -> Box<dyn Coroutine<Yield = usize, Return = String> + Unpin + '_> {
-	// // Set up CPU
-	// let mut cpu = Cpu::new();
-	// // cpu.pc = 0x8000;
-	// cpu.pc = 0xc000;
-	// cpu.sp = 0xFD;
-	// cpu.update_monitor();
-	// self.cpu = &cpu as *const Cpu;
-	// let cpu_bus = cpu.io_bus.clone();
-	// let reset_signal = cpu.reset_signal.clone();
-	// let _irq_signal = cpu.irq_signal.clone();
-	// let _nmi_signal = cpu.nmi_signal.clone();
-
-	// // Set up PPU
-	// let mut ppu = Ppu::new();
-	// self.ppu = &mut ppu as *mut Ppu;
-	// let ppu_regs = ppu.regs.clone();
-
+	       mut cart: Cart,
+	       init: Option<(u16, u8)>,
+    ) -> Box<dyn Coroutine<Yield = usize, Return = String> + Unpin + '_> {
 	let go = #[coroutine] static move || {
 	    // Set up CPU
 	    let mut cpu = Cpu::new();
-	    // cpu.pc = 0x8000;
-	    cpu.pc = 0xc000;
-	    cpu.sp = 0xFD;
 	    cpu.update_monitor();
 	    self.cpu = &cpu as *const Cpu;
 	    let cpu_bus = cpu.io_bus.clone();
 	    let reset_signal = cpu.reset_signal.clone();
 	    let _irq_signal = cpu.irq_signal.clone();
 	    let _nmi_signal = cpu.nmi_signal.clone();
+
+	    if let Some((pc, sp)) = init {
+		cpu.pc = pc;
+		cpu.sp = sp;
+	    } else {
+		reset_signal.store(true, Ordering::Relaxed)
+	    }
+	    
 	    let mut cpu_process = cpu.run();
 	    
 	    // Set up PPU
@@ -416,7 +479,6 @@ impl Nes {
 	    // let cpu_bus = cpu.read_buf.clone();
 	    // let mut cpu_process = cpu.run();
 
-	    // reset_signal.store(true, Ordering::Relaxed);
 	    loop {
 		// Step PPU
 		match yielded(Pin::new(&mut ppu_process).resume(())) {

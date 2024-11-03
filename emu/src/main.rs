@@ -192,10 +192,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Set up NES
     let mut nes = Nes::new();
     let nes_ptr = &nes as *const Nes;
-    let mut nes_process = nes.run(cart);
-
-    // let cpu_ptr = unsafe { (*nes_ptr).cpu };
-    // let _ppu_ptr = unsafe { (*nes_ptr).ppu };
+    let mut nes_process = nes.run(cart, None);
 
     // Set up raylib
     let (mut rl, thread) = raylib::init()
@@ -208,14 +205,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let chrrom_left = chrrom_texture(&mut rl, &thread, &ines, &palette, 0)?;
     let chrrom_right = chrrom_texture(&mut rl, &thread, &ines, &palette, 1)?;
 
-    let mut pc = unsafe { (*(*nes_ptr).cpu).pc };
+    _ = yielded(Pin::new(&mut nes_process).resume(()))?;
 
-    let expected_log = parse_log("/home/alex/source/nes-test-roms/other/nestest.log")?;
-    let mut i = 0;
-
+    let pc_monitor = unsafe { (*(*nes_ptr).cpu).pc_monitor.clone() };
+    let mut pc = 0;
     let mut cycles = 7*3;
+
     while !rl.window_should_close() {
-	// let mut cycles = 0;
 	// Run NES cycles for the frame
 	for _ in 0 .. CYCLES_PER_FRAME {
 	    _ = yielded(Pin::new(&mut nes_process).resume(()))?;
@@ -223,40 +219,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 	    cycles += 1;
 	    if new_pc != pc {
-
-		// println!("expected: {:04x}", expected_log[i].a);
-		// unsafe { println!("actual: {:04x}", (*(*nes_ptr).cpu).a); }
-
-		// unsafe { assert_eq!(expected_log[i], (&*(*nes_ptr).cpu, cycles / 3).into()) }
-		unsafe {
-		    let state = (&*(*nes_ptr).cpu, cycles / 3).into();
-		    if expected_log[i] != state {
-			return Err(format!("expected: {}, actual: {}", expected_log[i], state).into());
-		    }
-		}
-		
-		i += 1;
-		// if i > 100 {
-		//     std::process::exit(0)
-		// }
-		
-		// println!("{:04x}", new_pc);
-		// unsafe { print_log(cpu_ptr, &(*cart_ptr).rom.prgrom, cycles) }
 		print_log(nes_ptr, cart_ptr, cycles / 3);
 		pc = new_pc;
 	    }
-	    if cycles / 3 > 199630 {
-		return Ok(())
-	    }
-	    // println!("{}", cycles / 3);
+	    // if cycles / 3 > 199630 {
+	    // 	return Ok(())
+	    // }
 	}
-	
-	// println!("{}", cycles);
-
-	// println!("{}", PC_MONITOR.load(Ordering::Relaxed));
-	// unsafe {
-	//     println!("{}", (*(*nes_ptr).cpu).pc);
-	// }
 	
         let mut d = rl.begin_drawing(&thread);         
         d.clear_background(Color::WHITE);
@@ -286,17 +255,18 @@ mod tests {
     use std::ops::{CoroutineState};
     use std::pin::Pin;
 
+    // Compare execution against the nestest log.
     #[test]
     fn nestest() -> Result<(), Box<dyn std::error::Error>> {
 	let rom_data = fs::read("/home/alex/source/nes-test-roms/other/nestest.nes")?;
 	let ines: INES = rom_data.into();
 	let cart = Cart::new(ines.clone()).expect("couldn't load ROM");
 	let cart_ptr = &cart as *const Cart;
-	
+
 	// Set up NES
 	let mut nes = Nes::new();
 	let nes_ptr = &nes as *const Nes;
-	let mut nes_process = nes.run(cart);
+	let mut nes_process = nes.run(cart, Some((0xc000, 0xfd)));
 
 	let expected_log = parse_log(
 	    "/home/alex/source/nes-test-roms/other/nestest.log")?;
@@ -306,32 +276,25 @@ mod tests {
 	let mut cycles = 7 * 3;
 
 	_ = yielded(Pin::new(&mut nes_process).resume(()))?;
-	cycles += 1;
-
 	let pc_monitor = unsafe { (*(*nes_ptr).cpu).pc_monitor.clone() };
+	print_log(nes_ptr, cart_ptr, cycles / 3);
 
-	let mut check = || {
+	while i < expected_log.len() {
 	    cycles += 1;
 	    let new_pc = pc_monitor.load(Ordering::Relaxed);
 	    if new_pc != pc {
+		print_log(nes_ptr, cart_ptr, cycles / 3);
 		unsafe {
 		    let state = (&*(*nes_ptr).cpu, cycles / 3).into();
 		    if expected_log[i] != state {
-			return Err::<(), String>(
-			    format!("expected: {}, actual: {}",
-				    expected_log[i], state).into());
+			return Err(format!("expected: {}, actual: {}",
+					   expected_log[i], state).into());
 		    }
 		}
 		i += 1;
 	    }
 	    pc = new_pc;
-	    Ok(())
-	};
-
-	check()?;
-	loop {
 	    _ = yielded(Pin::new(&mut nes_process).resume(()))?;
-	    check()?
 	}
 	Ok(())
     }

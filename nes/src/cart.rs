@@ -151,7 +151,7 @@ pub trait Mapper where {
 	//     return Some((MapTarget::Default, addr))
 	// }
 
-	println!("{:?} {:?} {:04x}", cp, rw, addr);
+	// println!("{:?} {:?} {:04x}", cp, rw, addr);
 
 	// Pass the address through the mapper. Even if it doesn't map
 	// to anything, the mapper can change its internal state via
