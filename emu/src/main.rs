@@ -4,7 +4,7 @@ use std::fmt;
 use std::fs;
 use std::ops::{Coroutine};
 use std::pin::Pin;
-use std::sync::atomic::{Ordering};
+// use std::sync::atomic::{Ordering};
 // use std::time::{Duration, Instant};
 // use std::thread::sleep;
 // use std::time::{Instant};
@@ -79,7 +79,7 @@ impl std::str::FromStr for LogState {
 
 // From https://doc.rust-lang.org/rust-by-example/std_misc/file/read_lines.html
 fn read_lines(filename: &str) -> Vec<String> {
-    fs::read_to_string(filename) 
+    fs::read_to_string(filename)
         .unwrap()  // panic on possible file-reading errors
         .lines()  // split the string into an iterator of string slices
         .map(String::from)  // make each slice into a string
@@ -107,7 +107,7 @@ fn chrrom_texture(rl: &mut RaylibHandle,
     for tile_y in 0..16 {
 	for tile_x in 0..16 {
 	    let tile_offset = tile_y * 256 + tile_x * 16;
-	    
+
 	    for row in 0..8 {
 		let mut lsb = ines.chrrom[i * 0x1000 + tile_offset + row];
 		let mut msb = ines.chrrom[i * 0x1000 + tile_offset + row + 8];
@@ -118,13 +118,13 @@ fn chrrom_texture(rl: &mut RaylibHandle,
 		    image.draw_pixel((tile_x * 8 + (7 - col)) as i32,
 				     (tile_y * 8 + row) as i32,
 				     palette[pixel as usize]);
-		}	
+		}
 	    }
 	}
     }
-    
-    let chrrom_texture = rl.load_texture_from_image(&thread, &image)?;
-    Ok(chrrom_texture)
+
+    rl.load_texture_from_image(&thread, &image)
+        .map_err(|e| e.to_string())
 }
 
 fn load_palette(path: &str) -> Result<[Color; 64], std::io::Error> {
@@ -226,8 +226,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	    // 	return Ok(())
 	    // }
 	}
-	
-        let mut d = rl.begin_drawing(&thread);         
+
+        let mut d = rl.begin_drawing(&thread);
         d.clear_background(Color::WHITE);
 	// d.draw_texture(&chrROM_texture, 0, 0, Color::WHITE);
 	d.draw_texture_ex(&chrrom_left,
@@ -240,7 +240,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let palette_tbl = unsafe { &(*nes_ptr).palette_tbl };
 	// println!("{:?}", palette_tbl);
 	for pal in 0..4 {
-	    
+
 	}
     }
 
@@ -252,8 +252,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 mod tests {
     use super::*;
     use std::fs;
-    use std::ops::{CoroutineState};
+    // use std::ops::{CoroutineState};
     use std::pin::Pin;
+    use std::sync::atomic::{Ordering};
 
     // Compare execution against the nestest log.
     #[test]
