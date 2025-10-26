@@ -258,7 +258,7 @@ mod tests {
     // Compare execution against the nestest log.
     #[test]
     fn nestest() -> Result<(), Box<dyn std::error::Error>> {
-        let rom_data = fs::read("../test/rom/nestest.nes")?;
+        let rom_data = fs::read("../test/nestest/nestest.nes")?;
         let ines: INES = rom_data.into();
         let cart = Cart::new(ines.clone()).expect("couldn't load ROM");
         let cart_ptr = &cart as *const Cart;
@@ -268,8 +268,7 @@ mod tests {
         let nes_ptr = &nes as *const Nes;
         let mut nes_process = nes.run(cart, Some((0xc000, 0xfd)));
 
-        let expected_log = parse_log(
-            "/home/alex/source/nes-test-roms/other/nestest.log")?;
+        let expected_log = parse_log("../test/nestest/nestest.log")?;
 
         let mut pc = 0;
         let mut i = 0;
