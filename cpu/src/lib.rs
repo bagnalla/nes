@@ -1181,11 +1181,13 @@ mod tests {
     #[test]
     fn harte() -> Result<(), Box<dyn std::error::Error>> {
         for op in 0..=255 {
-            if Cpu::decode(op).opcode == Opcode::Xxx {
-                continue
-            }
+            // Ignore unsupported and HLT/STP opcodes
+            if Cpu::decode(op).opcode == Opcode::Xxx ||
+                Cpu::decode(op).opcode == Opcode::Hlt {
+                    continue
+                }
             println!("{:02x}", op);
-            let path = format!("/home/alex/source/65x02/6502/v1/{:02x}.json", op);
+            let path = format!("../test/harte/v1/{:02x}.json", op);
             let file = fs::File::open(path)?;
             let tests: Vec<Test> = serde_json::from_reader(file)?;
             for test in tests {
@@ -1207,8 +1209,7 @@ mod tests {
     fn klaus_functional() -> Result<(), Box<dyn std::error::Error>> {
         const PROGRAM_START: u16 = 0x400;
         const SUCCESS_ADDR: u16 = 0x336d;
-        let path =
-            "/home/alex/Dropbox/6502_65C02_functional_tests/6502_functional_test.bin";
+        let path = "../test/klaus/6502_functional_test.bin";
         let mut mem: Vec<u8> = load_mem(path, 0x000A)?;
 
         let mut cpu = Cpu::new();
@@ -1289,7 +1290,7 @@ mod tests {
         const FEEDBACK_ADDR: usize = 0xBFFC;
         const IRQ_BIT: u8 = 1 << 0;
         const NMI_BIT: u8 = 1 << 1;
-        let path = "/home/alex/Dropbox/6502_65C02_functional_tests/6502_interrupt_test.bin";
+        let path = "../test/klaus/6502_interrupt_test.bin";
         let mut mem: Vec<u8> = load_mem(path, 0x000A)?;
 
         let mut cpu = Cpu::new();

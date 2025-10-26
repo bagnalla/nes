@@ -247,7 +247,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,7 +258,7 @@ mod tests {
     // Compare execution against the nestest log.
     #[test]
     fn nestest() -> Result<(), Box<dyn std::error::Error>> {
-        let rom_data = fs::read("/home/alex/source/nes-test-roms/other/nestest.nes")?;
+        let rom_data = fs::read("../test/rom/nestest.nes")?;
         let ines: INES = rom_data.into();
         let cart = Cart::new(ines.clone()).expect("couldn't load ROM");
         let cart_ptr = &cart as *const Cart;
