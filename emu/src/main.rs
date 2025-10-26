@@ -175,13 +175,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!((CYCLES_PER_SECOND * SECONDS_PER_FRAME).floor() as usize,
                CYCLES_PER_FRAME);
 
-    let palette = load_palette("2C02G_wiki.pal")?;
+    let palette = load_palette("palette/2C02G_wiki.pal")?;
     // println!("{:?}", palette);
 
     // let rom_data = fs::read("/home/alex/Dropbox/nes/roms/Super_mario_brothers.nes")?;
     let rom_data = fs::read(
         // "/home/alex/Dropbox/nes/roms/Super Mario Bros. (Japan, USA).nes")?;
-        "/home/alex/source/nes-test-roms/other/nestest.nes")?;
+        "test/nestest/nestest.nes")?;
     let ines: INES = rom_data.into();
     // println!("{:?}", ines.mapper_id);
     // println!("{:?}", ines.sz_prgrom);
